@@ -1,2 +1,4 @@
-# stratocumulus
-Deploy biggish cloud-based clusters
+Stratocumulus
+=============
+
+Deploy biggish cloud-based clusters.
