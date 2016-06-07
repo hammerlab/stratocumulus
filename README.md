@@ -28,6 +28,9 @@ export GCLOUD_HOST=ssh://MyGCloudSSHHost/tmp/KT
 # (Optional) Ketrew binary for Ubuntu Xenial (Ketrew will be built if absent).
 export KETREW_BIN="http://example.com/path/to/ketrew-xenial-x86_64"
 
+# (Optional) a prefix for all the names creates (compute nodes and servers):
+export NAME_PREFIX="my-first-deplyment"
+
 # Authentication token for the Ketrew server to deploy:
 export KETREW_TOKEN=kjkjdjedekj388787732edkde8ude909e39iki
 

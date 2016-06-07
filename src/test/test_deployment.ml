@@ -16,6 +16,11 @@ let get_ketrew =
 let nb_of_nodes =
   env "NODES" |> Option.map ~f:int_of_string |> Option.value ~default:2
 
+let prefix =
+  env "NAME_PREFIX" |> Option.value ~default:"stratocumulus-test"
+
+let name s = sprintf "%s-%s" prefix s
+
 let test_deployment =
   let configuration =
     Configuration.make ()
@@ -30,21 +35,21 @@ let test_deployment =
       ~remote_path:(env_exn "NFS_PATH")
       ~witness:"./Hello.md"
   in
-  Deployment.make "stratocumulus-test-one"
+  Deployment.make (name "one")
     ~configuration
     ~clusters:[
-      Cluster.make "stratocumulus-test-one-cluster"
+      Cluster.make (name "one-cluster")
         ~compute_nodes:(
           List.init nb_of_nodes (fun i ->
-              Node.make (sprintf "stratocumulus-test-compute-%02d" i)
+              Node.make (sprintf "%s-compute-%02d" prefix i)
                 ~machine_type:(`GCloud "n1-highmem-8")
             )
         )
         ~nfs_server
         ~nfs_mount_point:"/nfsmain"
-        ~torque_server:(Node.make "stratocumulus-test-pbs-server"
+        ~torque_server:(Node.make (name "pbs-server")
                           ~machine_type:(`GCloud "n1-highmem-8"))
-        ~ketrew_server:(Node.make "stratocumulus-test-ketrew-server")
+        ~ketrew_server:(Node.make (name "ketrew-server"))
     ]
 
 let () = Stratocumulus.Deploy.command_line test_deployment
