@@ -52,4 +52,31 @@ let test_deployment =
         ~ketrew_server:(Node.make (name "ketrew-server"))
     )
 
-let () = Stratocumulus.Deploy.command_line test_deployment
+let () =
+  let cmds =
+    Stratocumulus.Deploy.command_line test_deployment
+      ~up_command:"up"
+      ~down_command:"down"
+      ~print_command:"display"
+      ~status_command:"status"
+      ~ketrew_config_command:"ketrew-configuration"
+  in
+  let open Cmdliner in
+  let version = Stratocumulus.Metadata.version |> Lazy.force in
+  let sub_command ~info ~term = (term, info) in
+  let default_cmd =
+    let doc = "Some workflows to setup google cloud clusters" in
+    let man = [
+      `S "AUTHORS";
+      `P "Sebastien Mondet <seb@mondet.org>"; `Noblank;
+      `S "BUGS";
+      `P "Browse and report new issues at"; `Noblank;
+      `P "<https://github.com/hammerlab/stratocumulus>.";
+    ] in
+    sub_command
+      ~term:Term.(ret (pure (`Help (`Plain, None))))
+      ~info:(Term.info Sys.argv.(0) ~version ~doc ~man) in
+  match Term.eval_choice default_cmd cmds with
+  | `Ok f -> f
+  | `Error _ -> exit 1
+  | `Version | `Help -> exit 0

@@ -854,22 +854,15 @@ module Deployment = struct
 end
 
 
-let command_line deployment =
+let command_line
+    ~up_command
+    ~down_command
+    ~status_command
+    ~ketrew_config_command
+    ~print_command
+    deployment =
   let open Cmdliner in
-  let version = "0.0.0" in
   let sub_command ~info ~term = (term, info) in
-  let default_cmd =
-    let doc = "Some workflows to setup google cloud clusters" in
-    let man = [
-      `S "AUTHORS";
-      `P "Sebastien Mondet <seb@mondet.org>"; `Noblank;
-      `S "BUGS";
-      `P "Browse and report new issues at"; `Noblank;
-      `P "<https://github.com/hammerlab/stratocumulus>.";
-    ] in
-    sub_command
-      ~term:Term.(ret (pure (`Help (`Plain, None))))
-      ~info:(Term.info Sys.argv.(0) ~version ~doc ~man) in
   let workflow_command command ~descr ~f =
     sub_command
       ~term:Term.(
@@ -900,12 +893,12 @@ let command_line deployment =
       ~info:Term.(info command ~doc:descr)
   in
   let up =
-    workflow_command "up-workflow"
+    workflow_command up_command
       ~descr:"The worfklow to enable the deployment"
       ~f:Deployment.up
   in
   let down =
-    workflow_command "down-workflow"
+    workflow_command down_command
       ~f:Deployment.down
       ~descr:"The worfklow to disable the deployment" in
   let format_flag =
@@ -928,7 +921,7 @@ let command_line deployment =
           end
           $ format_flag
         )
-      ~info:Term.(info "print" ~doc:"Output the deployment")
+      ~info:Term.(info print_command ~doc:"Output the deployment")
   in
   let status =
     sub_command
@@ -942,7 +935,7 @@ let command_line deployment =
           end
           $ format_flag
         )
-      ~info:Term.(info "status" ~doc:"Get info from the deployment")
+      ~info:Term.(info status_command ~doc:"Get info from the deployment")
   in
   let ketrew_config =
     let path_arg =
@@ -956,14 +949,11 @@ let command_line deployment =
           end
           $ path_arg
         )
-      ~info:Term.(info "ketrew-configuration"
+      ~info:Term.(info ketrew_config_command
                     ~doc:"Get info from the deployment")
   in
   let cmds = [
     up; down; show; status; ketrew_config;
   ]
   in
-  match Term.eval_choice default_cmd cmds with
-  | `Ok f -> f
-  | `Error _ -> exit 1
-  | `Version | `Help -> exit 0
+  cmds
