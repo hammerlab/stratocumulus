@@ -807,16 +807,15 @@ module Deployment = struct
   type t = {
     name: string [@main];
     configuration: Configuration.t;
-    clusters: Cluster.t list;
+    cluster: Cluster.t;
   } [@@deriving yojson, show, make]
 
   let up t =
     let open Ketrew.EDSL in
     let configuration = t.configuration in
-    let edges =
-      List.map t.clusters ~f:(fun cluster ->
-          depends_on (Cluster.up cluster ~configuration))
-    in
+    let edges = [
+      depends_on (Cluster.up t.cluster ~configuration);
+    ] in
     workflow_node without_product
       ~name:(sprintf "Enable deployment %s" t.name)
       ~edges
@@ -824,29 +823,23 @@ module Deployment = struct
   let down t =
     let open Ketrew.EDSL in
     let configuration = t.configuration in
-    let edges =
-      List.map t.clusters ~f:(fun cluster ->
-          depends_on (Cluster.down cluster ~configuration))
-    in
+    let edges = [
+      depends_on (Cluster.down t.cluster ~configuration);
+    ] in
     workflow_node without_product
       ~name:(sprintf "Disable deployment %s" t.name)
       ~edges
 
   let status t =
     let configuration = t.configuration in
-    let clusters =
-      List.map t.clusters ~f:(Cluster.status ~configuration)
-    in
-    String.concat ~sep:"\n" clusters
+    Cluster.status ~configuration t.cluster
 
   let output_ketrew_client_config t ~path =
     Lwt_main.run begin
       let open Pvem_lwt_unix.Deferred_result in
       let configuration = t.configuration in
-      let profile = if List.length t.clusters = 1 then Some "default" else None in
-      Pvem_lwt_unix.Deferred_list.while_sequential t.clusters
-        (Cluster.ketrew_client_config ?profile ~configuration)
-      >>| List.concat
+      let profile = "default" in
+      Cluster.ketrew_client_config t.cluster ~profile ~configuration
       >>= fun config ->
       let content = Ketrew.Configuration.to_json config in
       Pvem_lwt_unix.IO.write_file path ~content

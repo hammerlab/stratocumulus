@@ -37,7 +37,7 @@ let test_deployment =
   in
   Deployment.make (name "one")
     ~configuration
-    ~clusters:[
+    ~cluster:(
       Cluster.make (name "one-cluster")
         ~compute_nodes:(
           List.init nb_of_nodes (fun i ->
@@ -50,6 +50,6 @@ let test_deployment =
         ~torque_server:(Node.make (name "pbs-server")
                           ~machine_type:(`GCloud "n1-highmem-8"))
         ~ketrew_server:(Node.make (name "ketrew-server"))
-    ]
+    )
 
 let () = Stratocumulus.Deploy.command_line test_deployment
