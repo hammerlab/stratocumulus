@@ -239,7 +239,7 @@ module Nfs = struct
   let show {server; remote_path; _} =
     sprintf "nfs://%s/%s" (Node.show server) remote_path
 
-  let mount_command {server; remote_path} ~mount_point =
+  let mount_command {server; remote_path; _} ~mount_point =
     let open Node in
     sprintf "mount -t nfs %s:%s %s" server.name remote_path mount_point
 
