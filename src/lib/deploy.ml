@@ -284,6 +284,21 @@ module Nfs = struct
               ))))
       ~name ~make ~edges
 
+  let clean_up_access_rights t ~configuration =
+    let open Ketrew.EDSL in
+    let host = Configuration.gcloud_host configuration in
+    let make =
+      daemonize ~host ~using:`Python_daemon Program.(
+          Node.chain_gcloud ~sudo:true ~on:t.server [
+            sprintf "chmod -R 777 %s" t.remote_path;
+          ]
+        )
+    in
+    let edges = [
+      depends_on (ensure_server t ~configuration);
+    ] in
+    workflow_node without_product ~make ~edges
+      ~name:(sprintf "Ensure NFS server %s is alive" (show t))
 
 end
 
@@ -664,6 +679,7 @@ module Cluster = struct
         depends_on (
           Torque.setup_server ~on:t.torque_server ~configuration;
         );
+        depends_on (Nfs.clean_up_access_rights t.nfs_server ~configuration);
         depends_on (
           Ketrew_server.setup ~on:t.ketrew_server ~configuration;
         );
