@@ -576,7 +576,10 @@ module Ketrew_server = struct
                  ~tls_key:tls#product#key
                |> Ketrew.Configuration.to_json |> Filename.quote)
               config_file;
-            sprintf "echo \"ketrew start-server -C %s -P server\" > %s"
+            sprintf "echo \"%s ketrew start-server -C %s -P server\" > %s"
+              (match Configuration.get_ketrew configuration with
+              | `Build -> "eval \\`opam config env\\` ; "
+              | `Download_binary _ -> "")
               config_file start_script;
             sprintf "chmod +x %s" start_script;
             sprintf "screen -dmS %s"
