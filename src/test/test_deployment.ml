@@ -45,8 +45,9 @@ let test_deployment =
                 ~machine_type:(`GCloud "n1-highmem-8")
             )
         )
-        ~nfs_server
-        ~nfs_mount_point:"/nfsmain"
+        ~nfs_mounts:[
+          nfs_server, `Path "/nfsmain";
+        ]
         ~torque_server:(Node.make (name "pbs-server")
                           ~machine_type:(`GCloud "n1-highmem-8"))
         ~ketrew_server:(Node.make (name "ketrew-server"))

@@ -661,8 +661,7 @@ module Cluster = struct
   type t = {
     name: string [@main];
     compute_nodes: Node.t list;
-    nfs_server: Nfs.t;
-    nfs_mount_point: string;
+    nfs_mounts: (Nfs.t * [ `Path of string]) list;
     torque_server: Node.t;
     ketrew_server: Node.t;
   } [@@deriving yojson, show, make]
@@ -683,22 +682,22 @@ module Cluster = struct
         depends_on (
           Torque.setup_server ~on:t.torque_server ~configuration;
         );
-        depends_on (Nfs.clean_up_access_rights t.nfs_server ~configuration);
         depends_on (
           Ketrew_server.setup ~on:t.ketrew_server ~configuration;
         );
       ]
+      @ List.map t.nfs_mounts ~f:(fun (server, `Path _) ->
+          depends_on (Nfs.clean_up_access_rights server ~configuration))
       @ List.concat_map (all_nodes t) ~f:(fun on ->
           [
             depends_on (Node.ensure_software_packages on
                           ~configuration [`Biokepi_dependencies]);
-            depends_on (Nfs.mount t.nfs_server ~on ~configuration
-                          ~mount_point:t.nfs_mount_point);
             depends_on (Node.get_gcloud_node_ssh_key on ~configuration);
           ]
+          @ List.map t.nfs_mounts ~f:(fun (server, `Path mount_point) ->
+              depends_on (Nfs.mount server ~on ~configuration ~mount_point))
         )
-      @
-      List.map t.compute_nodes ~f:(fun on ->
+      @ List.map t.compute_nodes ~f:(fun on ->
           depends_on (Torque.setup_client
                         ~on ~configuration ~server:t.torque_server));
     in
