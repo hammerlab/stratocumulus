@@ -179,6 +179,7 @@ module Node = struct
             | `Opam -> "opam m4 pkg-config libgmp-dev"
             | `Sqlite -> "libsqlite3-dev"
             | `Biokepi_dependencies -> "cmake r-base"
+            | `Libev -> "libev-dev"
         )
       |> String.concat ~sep:" "
     in
@@ -453,7 +454,7 @@ module Ketrew_server = struct
             | `Build ->
               Node.chain_gcloud ~sudo:false ~on [
                 "opam init --comp=4.02.3";
-                "opam install --yes tls sqlite3";
+                "opam install --yes tls sqlite3 conf-libev";
                 "opam pin --yes add ketrew https://github.com/hammerlab/ketrew.git";
               ]
             | `Download_binary binary ->
@@ -468,8 +469,8 @@ module Ketrew_server = struct
     in
     let packages =
       match Configuration.get_ketrew configuration with
-      | `Build -> [`Opam; `Sqlite]
-      | `Download_binary _ -> [`Sqlite]
+      | `Build -> [`Opam; `Sqlite; `Libev]
+      | `Download_binary _ -> [`Sqlite; `Libev]
     in
     let edges = [
       depends_on (Node.ensure_software_packages on ~configuration packages);
