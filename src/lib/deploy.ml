@@ -57,7 +57,15 @@ module Node = struct
     zone: string [@default "us-east1-c"];
     os: [ `Xenial ] [@default `Xenial];
     machine_type: [ `GCloud of string ] [@default `GCloud "g1-small"];
+    external_ip_address: [ `None | `Assigned ] [@default `Assigned];
   } [@@deriving yojson, show, make, eq]
+  (**
+     The node, for now only an instance on Google Cloud.
+
+     - [external_ip_address]: please do not use [`None] yet, since we are not
+       ready to create a NAT for these nodes to reach the outside world to
+       install software.
+  *)
 
   let show t = sprintf "%s" t.name
 
@@ -74,7 +82,7 @@ module Node = struct
   let sudo cmd =
     sprintf "sudo sh -c %s" (Filename.quote cmd)
   let gcloud_run_command t cmd =
-    sprintf "gcloud compute ssh %s --zone %s %s" t.name t.zone
+    sprintf "ssh -i ~/.ssh/google_compute_engine -oStrictHostKeyChecking=no %s %s" t.name
       Filename.(quote cmd)
 
   let sudo_if v = if v then sudo else (fun s -> s)
@@ -117,6 +125,7 @@ module Node = struct
                %s \
                --zone %s \
                --image %s  \
+               %s \
                %s"
             t.name
             (match t.scopes with
@@ -124,6 +133,9 @@ module Node = struct
             | _ :: _ -> "--scopes " ^ String.concat ~sep:"," t.scopes)
             t.zone
             (image_url t)
+            (match t.external_ip_address with
+            | `None -> "--no-address"
+            | `Assigned -> "")
             machine_type_options
           && wait_until_really_up
           && chain_gcloud ~on:t ~sudo:true [
