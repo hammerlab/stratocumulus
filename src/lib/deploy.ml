@@ -57,7 +57,7 @@ module Node = struct
     zone: string [@default "us-east1-c"];
     os: [ `Xenial ] [@default `Xenial];
     machine_type: [ `GCloud of string ] [@default `GCloud "g1-small"];
-  } [@@deriving yojson, show, make]
+  } [@@deriving yojson, show, make, eq]
 
   let show t = sprintf "%s" t.name
 
@@ -200,32 +200,6 @@ module Node = struct
         depends_on (create_instance t ~configuration)
       ]
 
-  let get_gcloud_node_ssh_key on ~configuration =
-    let open Ketrew.EDSL in
-    let host = Configuration.gcloud_host configuration in
-    let name =
-      sprintf "Get %s's SSH Keys on %s"
-        configuration.Configuration.gcloud_host (show on) in
-    let make =
-      daemonize ~host ~using:`Python_daemon Program.(
-          "rm -f ~/.ssh/google_compute_engine* ~/.ssh/config"
-          |> gcloud_run_command on |> sh
-          &&
-          shf "gcloud compute copy-files --zone %s ~/.ssh/google* %s:./.ssh/"
-            on.zone on.name
-          && sprintf "echo 'IdentityFile ~/.ssh/google_compute_engine' \
-                      >> ~/.ssh/config"
-             |> gcloud_run_command on |> sh
-          && sprintf "echo 'StrictHostKeyChecking no' \
-                      >> ~/.ssh/config"
-             |> gcloud_run_command on |> sh
-        )
-    in
-    workflow_node without_product
-      ~name ~make
-      ~edges:[
-        depends_on (create_instance on ~configuration);
-      ]
 
 
 end
@@ -299,7 +273,8 @@ module Nfs = struct
       depends_on (ensure_server t ~configuration);
     ] in
     workflow_node without_product ~make ~edges
-      ~name:(sprintf "Ensure NFS server %s is alive" (show t))
+      ~name:(sprintf "Chmod 777 nfs://%s:%s"
+               (Node.show t.server) t.remote_path)
 
 end
 
@@ -488,7 +463,6 @@ module Ketrew_server = struct
             "ketrew --version" |> Node.gcloud_run_command on |> sh;
           )
     in
-    (* let condition = test_qsub_condition ~on in *)
     workflow_node without_product
       ~done_when:(`Is_verified condition)
       ~name ~make ~edges
@@ -502,7 +476,6 @@ module Ketrew_server = struct
     let key =
       Configuration.ketrew_configuration_path configuration // "privkey.pem" in
     let cert_key =
-      (* let files = list_of_files ~host [cert; key] in *)
       object
         method is_done =
           Some Condition.(program ~returns:0 Program.(
@@ -557,7 +530,7 @@ module Ketrew_server = struct
     ]
 
 
-  let setup ~on ~configuration =
+  let setup ?run_as ~on ~configuration () =
     let open Ketrew.EDSL in
     let name = sprintf "Setup Ketrew server on %s" (Node.show on) in
     let host = Configuration.gcloud_host configuration in
@@ -577,10 +550,15 @@ module Ketrew_server = struct
                  ~tls_key:tls#product#key
                |> Ketrew.Configuration.to_json |> Filename.quote)
               config_file;
-            sprintf "echo \"%s ketrew start-server -C %s -P server\" > %s"
+            sprintf "chmod -R 777 %s"
+              (Configuration.ketrew_configuration_path configuration);
+            sprintf "echo \"%s %s 'ketrew start-server -C %s -P server'\" > %s"
               (match Configuration.get_ketrew configuration with
               | `Build -> "eval \\`opam config env\\` ; "
               | `Download_binary _ -> "")
+              (match run_as with
+              | None -> "sh -c "
+              | Some user -> sprintf "sudo -- su %s -c" user)
               config_file start_script;
             sprintf "chmod +x %s" start_script;
             sprintf "screen -dmS %s"
@@ -591,7 +569,6 @@ module Ketrew_server = struct
         )
     in
     let edges = [
-      depends_on (Node.get_gcloud_node_ssh_key on ~configuration);
       depends_on tls;
       depends_on (install ~on ~configuration);
     ] in
@@ -656,6 +633,148 @@ module Firewall_rule = struct
 
 end
 
+module User = struct
+  type t = {
+    username: string [@main];
+    unix_uid: int;
+  } [@@deriving yojson, show, make]
+
+  let add t ~on ~configuration =
+    (* useradd or adduser?
+       https://help.ubuntu.com/community/AddUsersHowto *)
+    let open Ketrew.EDSL in
+    let name = sprintf "Create user %s (%d)" t.username t.unix_uid in
+    let host = Configuration.gcloud_host configuration in
+    let make =
+      daemonize ~host ~using:`Python_daemon Program.(
+          Node.chain_gcloud ~sudo:true ~on [
+            sprintf "adduser %s --uid %d --disabled-password"
+              t.username t.unix_uid
+          ]) in
+    let condition =
+      Condition.program ~returns:0 ~host Program.(
+          Node.chain_gcloud ~sudo:false ~on [
+            sprintf "groups %s" t.username
+          ]
+        )
+    in
+    workflow_node without_product
+      ~done_when:(`Is_verified condition) ~name ~make
+      ~edges:[
+        depends_on (Node.create_instance on ~configuration);
+      ]
+
+  let ssh_key_path t =
+    sprintf "/stratocumulus-ssh-keys/stratokey_%s_%d" t.username t.unix_uid
+
+  let generate_ssh_key t ~on ~configuration =
+    (* passwordless keys *)
+    let open Ketrew.EDSL in
+    let name =
+      sprintf "Generate SSH-Key for %s (%d) on %s"
+        t.username t.unix_uid (Node.show on) in
+    let host = Configuration.gcloud_host configuration in
+    let make =
+      daemonize ~host ~using:`Python_daemon Program.(
+          Node.chain_gcloud ~sudo:true ~on [
+            (* The `mkdir` and the `chown` assume that there is only one
+               level of directories from `$HOME`: `/.ssh/` *)
+            sprintf "mkdir %s" (ssh_key_path t |> Filename.dirname);
+            sprintf "ssh-keygen -t rsa -N '' -f %s" (ssh_key_path t);
+            sprintf "chmod -R 755 %s" (ssh_key_path t |> Filename.dirname);
+            (* sprintf "chown -R %s:%s %s"
+              t.username t.username (ssh_key_path t |> Filename.dirname); *)
+          ]) in
+    let product =
+      let condition =
+        Condition.program ~returns:0 ~host Program.(
+            Node.chain_gcloud ~sudo:true ~on [
+              sprintf "test -f %s" (ssh_key_path t);
+              sprintf "test -f %s.pub" (ssh_key_path t);
+            ]
+          )
+      in
+      object
+        method is_done = Some condition
+        method key = ssh_key_path t
+        method pub = ssh_key_path t ^ ".pub"
+      end in
+    workflow_node product ~name ~make ~edges:[
+        depends_on (Node.create_instance on ~configuration);
+        depends_on (add t ~on ~configuration);
+      ]
+
+  let setup_ssh_key t ~from ~on ~configuration =
+    let the_key = generate_ssh_key t ~on:from ~configuration in
+    let open Ketrew.EDSL in
+    let host = Configuration.gcloud_host configuration in
+    (* cf. Node.get_gcloud_node_ssh_key *)
+    let name =
+      sprintf "Setup %s's SSH Keys on %s (from %s)"
+        t.username (Node.show on) (Node.show from)
+    in
+    let make =
+      daemonize ~host ~using:`Python_daemon Program.(
+          (* begin match Node.equal from on with
+          | false -> *)
+            let tmp_dir =
+              sprintf "/tmp/keys-of-%s-to-%s" from.Node.name on.Node.name in
+            Node.chain_gcloud ~sudo:true ~on [
+              sprintf "rm -fr ~%s/.ssh/" t.username;
+              sprintf "mkdir -p ~%s/.ssh/" t.username;
+              sprintf "chmod -R 777 ~%s/.ssh/" t.username;
+            ]
+            (* && Node.chain_gcloud ~sudo:true ~on:from [
+              sprintf "chmod -R 777 ~%s/.ssh/" t.username;
+              sprintf "chmod a+x ~%s/" t.username;
+            ] *)
+            && chain [
+              (* We have to this in two steps because gcloud does not seem to be
+                 able to cope with 2 distant hosts *)
+              shf "mkdir -p %s" tmp_dir;
+              shf "gcloud compute copy-files --zone %s %s:%s %s:%s %s/ "
+                from.Node.zone
+                from.Node.name the_key#product#key
+                from.Node.name the_key#product#pub
+                tmp_dir;
+              shf "gcloud compute copy-files --zone %s %s/%s %s/%s %s:/home/%s/.ssh/"
+                on.Node.zone
+                tmp_dir (Filename.basename the_key#product#key)
+                tmp_dir (Filename.basename the_key#product#pub)
+                on.Node.name t.username;
+            ]
+            && Node.chain_gcloud ~sudo:true ~on [
+              sprintf "chmod -R 700 ~%s/.ssh/" t.username;
+            ]
+          (* | true ->
+            sh "echo No-SSH-key-copy-needed"
+          end *)
+          && Node.chain_gcloud ~sudo:true ~on [
+            sprintf "echo 'IdentityFile ~%s/.ssh/%s' \
+                     >> ~%s/.ssh/config"
+              t.username
+              (Filename.basename the_key#product#key)
+              t.username;
+            sprintf "echo 'StrictHostKeyChecking no' \
+                     >> ~%s/.ssh/config" t.username;
+            sprintf "cat ~%s/.ssh/%s >> ~%s/.ssh/authorized_keys"
+              t.username
+              (Filename.basename the_key#product#pub)
+              t.username;
+            sprintf "chown -R %s:%s ~%s/.ssh" t.username t.username t.username;
+            sprintf "chmod -R 700 ~%s/.ssh" t.username;
+          ]
+        )
+    in
+    workflow_node without_product
+      ~name ~make
+      ~edges:[
+        depends_on (Node.create_instance on ~configuration);
+        depends_on the_key;
+      ]
+
+end
+
 module Cluster = struct
 
   type t = {
@@ -664,6 +783,7 @@ module Cluster = struct
     nfs_mounts: (Nfs.t * [ `Path of string]) list;
     torque_server: Node.t;
     ketrew_server: Node.t;
+    users: User.t list [@default []];
   } [@@deriving yojson, show, make]
 
   let open_ketrew_port t ~configuration =
@@ -683,7 +803,10 @@ module Cluster = struct
           Torque.setup_server ~on:t.torque_server ~configuration;
         );
         depends_on (
-          Ketrew_server.setup ~on:t.ketrew_server ~configuration;
+          Ketrew_server.setup
+            ?run_as:(List.hd t.users
+                     |> Option.map ~f:(fun u -> u.User.username))
+            ~on:t.ketrew_server ~configuration ();
         );
       ]
       @ List.map t.nfs_mounts ~f:(fun (server, `Path _) ->
@@ -692,10 +815,16 @@ module Cluster = struct
           [
             depends_on (Node.ensure_software_packages on
                           ~configuration [`Biokepi_dependencies]);
-            depends_on (Node.get_gcloud_node_ssh_key on ~configuration);
+            (* depends_on (Node.get_gcloud_node_ssh_key on ~configuration); *)
           ]
           @ List.map t.nfs_mounts ~f:(fun (server, `Path mount_point) ->
               depends_on (Nfs.mount server ~on ~configuration ~mount_point))
+          @ List.concat_map t.users ~f:(fun user ->
+              [
+                depends_on (User.add user ~on ~configuration);
+                depends_on (User.setup_ssh_key user ~on
+                              ~from:t.ketrew_server ~configuration);
+              ])
         )
       @ List.map t.compute_nodes ~f:(fun on ->
           depends_on (Torque.setup_client

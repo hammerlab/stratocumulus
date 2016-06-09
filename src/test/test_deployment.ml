@@ -51,6 +51,9 @@ let test_deployment =
         ~torque_server:(Node.make (name "pbs-server")
                           ~machine_type:(`GCloud "n1-highmem-8"))
         ~ketrew_server:(Node.make (name "ketrew-server"))
+        ~users:[
+          User.make ~unix_uid:20420 (sprintf "%s-user" prefix);
+        ]
     )
 
 let () =
