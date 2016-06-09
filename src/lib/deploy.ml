@@ -1020,7 +1020,9 @@ let command_line
           end
           $ Arg.(required
                  & pos 0 (some (enum ["view", `View; "submit", `Submit])) None
-                 & info [] ~doc:"What to do with the Ketrew workflow")
+                 & info [] ~doc:"What to do with the Ketrew workflow: \
+                                 `view` or `submit`"
+                   ~docv:"WHAT-TO-DO")
         )
       ~info:Term.(info command ~doc:descr)
   in
@@ -1082,7 +1084,8 @@ let command_line
           $ path_arg
         )
       ~info:Term.(info ketrew_config_command
-                    ~doc:"Get info from the deployment")
+                    ~doc:"Generate a Ketrew configuration for the deployed \
+                          Ketrew server")
   in
   let cmds = [
     up; down; show; status; ketrew_config;
