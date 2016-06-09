@@ -39,8 +39,8 @@ section # deployer library
 section # Executable tests
     OCAML_LOCAL_LIBS += src/lib/stratocumulus
     OCAMLPACKS[] = $(LIB_PACKAGES) biokepi
-    OCamlProgramOfFile(deployment-test, $(file src/test/test_deployment.ml))
-    OCamlProgramOfFile(biokepi-test, $(file src/test/test_biokepi.ml))
+    #OCamlProgramOfFile(deployment-test, $(file src/test/test_deployment.ml))
+    OCamlProgramOfDirectory(deployment-test, $(dir src/test/))
 
 DotMerlin(./src, $(LIB_PACKAGES) biokepi)
 
@@ -49,8 +49,7 @@ uninstall: uninstall-lib-stratocumulus
 
 # `omake build-all` to build also the tests:
 build-all: lib-stratocumulus \
-           app-deployment-test \
-           app-biokepi-test
+           app-deployment-test
 
 #.PHONY: doc
 

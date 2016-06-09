@@ -1,16 +1,6 @@
 
 
-open Nonstd
-module String = Sosa.Native_string
-let (//) = Filename.concat
-
-
-let env_exn e =
-  try Sys.getenv e with
-  | _ -> ksprintf failwith "Missing environment variable $%s" e
-let env e =
-  try Some (Sys.getenv e) with
-  | _ -> None
+open Test_std
 
 
 
@@ -141,8 +131,3 @@ let run () =
       ~name:"TTFI-test Pipeline"
   in
   Ketrew.Client.submit_workflow workflow_1
-
-let () =
-  match Sys.argv |> Array.to_list with
-  | [one; "go"] -> run ()
-  | other -> ()
