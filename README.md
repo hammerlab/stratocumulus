@@ -13,7 +13,10 @@ The main test is in two pieces, UX will improve over time:
 - `src/test/test_biokepi.ml` → uses the deployed cluster to run a Biokepi
   workflow.
 
-Requirements:
+For the Biokepi submission to work Ketrew should be compiled with TLS support
+(`opam install tls`).
+
+Cloud Requirements:
 
 - a [“One-click NFS server”](https://cloud.google.com/launcher/docs/single-node-fileserver).
 - a host with `gcloud` installed and configured **and** password-less
