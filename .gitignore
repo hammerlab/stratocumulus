@@ -18,3 +18,10 @@ _build/
 # oasis generated files
 setup.data
 setup.log
+.merlin
+.ocamlinit
+.omakedb
+.omakedb.lock
+OMakeroot.omc
+biokepi-test
+deployment-test
