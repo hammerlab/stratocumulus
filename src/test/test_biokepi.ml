@@ -4,12 +4,15 @@ open Nonstd
 module String = Sosa.Native_string
 let (//) = Filename.concat
 
+
 let env_exn e =
   try Sys.getenv e with
   | _ -> ksprintf failwith "Missing environment variable $%s" e
 let env e =
   try Some (Sys.getenv e) with
   | _ -> None
+
+
 
 module Pipeline (Bfx : Biokepi.EDSL.Semantics) = struct
 
@@ -61,10 +64,14 @@ module The_test_cluster = struct
 
   let work_dir = "/nfsmain/test-stratocumulus-with-biokepi/"
 
+  let prefix =
+    env "NAME_PREFIX" |> Option.value ~default:"stratocumulus-test"
+
   let host =
     ksprintf Ketrew.EDSL.Host.parse
-      "ssh://stratocumulus-test-pbs-server/%s/ketrew-host-playground?ssh-option=-oIdentityFile=.ssh/google_compute_engine"
-      work_dir
+      "ssh://%s-user@%s-pbs-server/%s/ketrew-host-playground"
+      prefix prefix work_dir
+
   let gatk_jar_location = `Wget (env_exn "GATK_JAR_URL")
   let mutect_jar_location =
     `Fail "Please do not use Mutect 1 in stratocumulus' test"
