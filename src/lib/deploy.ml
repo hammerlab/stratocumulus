@@ -57,6 +57,7 @@ module Node = struct
     zone: string [@default "us-east1-c"];
     os: [ `Xenial ] [@default `Xenial];
     machine_type: [ `GCloud of string ] [@default `GCloud "g1-small"];
+    java: [ `Oracle_7 | `Oracle_8 | `None ] [@default `None];
   } [@@deriving yojson, show, make, eq]
 
   let show t = sprintf "%s" t.name
@@ -94,6 +95,31 @@ module Node = struct
           )
       )
 
+  let oracle_java_ubuntu_installation ~on which_one =
+    chain_gcloud ~on ~sudo:true [
+      (* The default Java, OpenJDK seems to create problems
+         cf. https://github.com/hammerlab/biokepi/issues/283 *)
+      "add-apt-repository --yes ppa:webupd8team/java";
+      "apt-get update";
+      (* On top of that we have to fight with interactive licensing questions
+         http://askubuntu.com/questions/190582/installing-java-automatically-with-silent-option *)
+      "echo debconf shared/accepted-oracle-license-v1-1 select true | \
+       debconf-set-selections";
+      "echo debconf shared/accepted-oracle-license-v1-1 seen true | \
+       sudo debconf-set-selections";
+      begin match which_one with
+      | `Oracle_7 ->
+        "DEBIAN_FRONTEND=noninteractive \
+         apt-get install --yes --allow-unauthenticated \
+         oracle-java7-installer"
+      | `Oracle_8 ->
+        "DEBIAN_FRONTEND=noninteractive \
+         apt-get install --yes --allow-unauthenticated \
+         oracle-java8-installer"
+      end;
+    ]
+
+
   let create_instance t ~configuration =
     let open Ketrew.EDSL in
     let host = Configuration.gcloud_host configuration in
@@ -130,20 +156,13 @@ module Node = struct
             (* We get `aptdaemon` to allow concurrent installations:
                cf. http://manpages.ubuntu.com/manpages/xenial/en/man1/aptdcon.1.html *)
             "apt-get install -y aptdaemon";
-            (* The default Java, OpenJDK seems to create problems
-               cf. https://github.com/hammerlab/biokepi/issues/283 *)
-            "add-apt-repository --yes ppa:webupd8team/java";
-            "apt-get update";
-            (* On top of that we have to fight with interactive licensing questions
-               http://askubuntu.com/questions/190582/installing-java-automatically-with-silent-option *)
-            "echo debconf shared/accepted-oracle-license-v1-1 select true | \
-             debconf-set-selections";
-            "echo debconf shared/accepted-oracle-license-v1-1 seen true | \
-             sudo debconf-set-selections";
-            "DEBIAN_FRONTEND=noninteractive \
-             apt-get install --yes --allow-unauthenticated \
-             oracle-java8-installer";
           ]
+            
+          && begin match t.java with
+          | `None -> shf "echo No-java-installation"
+          | `Oracle_7 | `Oracle_8 as oracle ->
+            oracle_java_ubuntu_installation ~on:t oracle
+          end
         ) in
     let product =
       object
