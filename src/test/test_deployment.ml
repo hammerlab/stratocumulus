@@ -19,21 +19,24 @@ let cluster =
       ~remote_path:(env_exn "NFS_PATH")
       ~witness:"./Hello.md"
   in
+  let compute_node name =
+    Node.make name
+      ~java:`Oracle_7
+      ~machine_type:(`GCloud "n1-highmem-8")
+  in
   Deployment.make (name "one")
     ~configuration
     ~cluster:(
       Cluster.make (name "one-cluster")
         ~compute_nodes:(
           List.init nb_of_nodes (fun i ->
-              Node.make (sprintf "%s-compute-%02d" prefix i)
-                ~machine_type:(`GCloud "n1-highmem-8")
+              compute_node (sprintf "%s-compute-%02d" prefix i)
             )
         )
         ~nfs_mounts:[
           nfs_server, `Path "/nfsmain";
         ]
-        ~torque_server:(Node.make (name "pbs-server")
-                          ~machine_type:(`GCloud "n1-highmem-8"))
+        ~torque_server:(compute_node (name "pbs-server"))
         ~ketrew_server:(Node.make (name "ketrew-server"))
         ~users:[
           User.make ~unix_uid:20420 (sprintf "%s-user" prefix);
