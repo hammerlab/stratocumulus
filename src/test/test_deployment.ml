@@ -59,12 +59,21 @@ let test_deployment =
     ]
 
 let test_nfs_deployment =
+  let nfs = Nfs.Fresh.make (name "nfs") ~size:(`GB 200) in
+  let mini_cluster =
+    Cluster.make (name "nfstest-minicluster")
+      ~compute_nodes:[]
+      ~nfs_mounts:[Nfs.Fresh.as_mount nfs ~mount_point:"/fresh-storage"]
+      ~torque_server:(Node.make (name "nfstest-pbs-server"))
+      ~ketrew_server:(Node.make (name "nfstest-ketrew-server"))
+      ~users:[
+        User.make ~unix_uid:20420 (sprintf "%s-user" prefix);
+      ]
+  in
   Deployment.make (name "nfstrato")
     ~configuration
-    ~nfs_deployments:[
-      Nfs.Fresh.make (name "nfs")
-        ~size:(`GB 200)
-    ]
+    ~nfs_deployments:[ nfs ]
+    ~clusters:[ mini_cluster ]
 
 let () =
   let cmds =
