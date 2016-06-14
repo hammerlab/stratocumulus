@@ -324,16 +324,18 @@ module Nfs = struct
 
     let as_node t = Node.make (t.name ^ "-vm")
 
-    let ensure t ~configuration =
+    let storage_path t = sprintf "/%s-storage" t.name
+
+    let witness_path t =
+      storage_path t // (match t.witness with `Existing p -> p | `Create p -> p)
+
+    let create_deployment t ~configuration =
       let open Ketrew.EDSL in
       let host = Configuration.gcloud_host configuration in
       let tmp_dir = Configuration.temp_file ~ext:"-gcloudnfs.d" configuration in
       let test_liveness =
-        Node.gcloud_run_command (as_node t) "uname -a"
-            (* sprintf "gcloud deployment-manager deployments describe %s \
-                 | grep 'status: DONE'"
-              t.name *)
-      in
+        Node.gcloud_run_command (as_node t)
+          (sprintf "ls -l %s" (storage_path t)) in
       let make =
         let properties = [
           "zone", t.zone;
@@ -359,7 +361,11 @@ module Nfs = struct
                 t.name
                 (List.map properties ~f:(fun (a, b) -> a ^ "=" ^ b)
                  |> String.concat ~sep:",");
-              sh (Shell_commands.wait_until_ok test_liveness);
+              sh (Shell_commands.wait_until_ok
+                    (* We wait for the ZFS mount-point to be setup.
+                       More or less 5 minutes after the command returns have
+                       been observed before. *)
+                    ~attempts:20 ~sleep:30 test_liveness);
             ]
           )
       in
@@ -368,6 +374,32 @@ module Nfs = struct
       let name = sprintf "Create NFS deployment: %s" t.name in
       workflow_node without_product ~name ~make
         ~done_when:(`Is_verified condition)
+
+    let ensure_witness t ~configuration =
+      let open Ketrew.EDSL in
+      let host = Configuration.gcloud_host configuration in
+      let make =
+        daemonize ~host ~using:`Python_daemon Program.(
+            match t.witness with
+            | `Existing _ -> chain []
+            | `Create path ->
+              sprintf "echo \"Created by stratocumulus on $(date -R)\" > %s"
+                (storage_path t // path)
+              |> Node.gcloud_run_command (as_node t)
+              |> sh
+          ) in
+      let name = sprintf "Ensure witness file of NFS deployment: %s" t.name in
+      let condition =
+        Condition.program ~host ~returns:0 Program.(
+            sprintf "test -f %s" (witness_path t)
+            |> Node.gcloud_run_command (as_node t) |> sh ) in
+      let edges = [
+        create_deployment t ~configuration |> depends_on;
+      ] in
+      workflow_node without_product ~name ~make ~edges
+        ~done_when:(`Is_verified condition)
+
+    let ensure t ~configuration = ensure_witness t ~configuration
 
     let destroy t ~configuration =
       let open Ketrew.EDSL in
