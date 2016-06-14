@@ -329,6 +329,13 @@ module Nfs = struct
     let witness_path t =
       storage_path t // (match t.witness with `Existing p -> p | `Create p -> p)
 
+    let as_mount t ~mount_point =
+      Mount.make
+        ~server:(as_node t)
+        ~witness:(witness_path t |> Filename.basename)
+        ~remote_path:(storage_path t)
+        ~mount_point
+
     let create_deployment t ~configuration =
       let open Ketrew.EDSL in
       let host = Configuration.gcloud_host configuration in
