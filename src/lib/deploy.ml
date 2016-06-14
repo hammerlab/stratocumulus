@@ -230,76 +230,82 @@ module Node = struct
 end
 
 module Nfs = struct
-  type t = {
-    server: Node.t;
-    remote_path: string;
-    witness: string; (* Relative path to a file in the NFS path *)
-  } [@@deriving yojson, show, make]
 
-  let show {server; remote_path; _} =
-    sprintf "nfs://%s/%s" (Node.show server) remote_path
+  module Mount = struct
+    (** Mount existing NFS servers on nodes. *)
 
-  let mount_command {server; remote_path; _} ~mount_point =
-    let open Node in
-    sprintf "mount -t nfs %s:%s %s" server.name remote_path mount_point
+    type t = {
+      server: Node.t;
+      remote_path: string;
+      witness: string; (* Relative path to a file in the NFS path *)
+      mount_point: string;
+    } [@@deriving yojson, show, make]
 
-  let witness t = t.witness
+    let show {server; remote_path; mount_point; _} =
+      sprintf "nfs://%s/%s?on=%s" (Node.show server) remote_path mount_point
 
-  (* We check it's there but we don't set it up yet.  *)
-  let ensure_server t ~configuration =
-    let open Ketrew.EDSL in
-    let host = Configuration.gcloud_host configuration in
-    workflow_node without_product
-      ~name:(sprintf "Ensure NFS server %s is alive" (show t))
-      ~done_when:(`Is_verified Condition.(
-          program ~returns:0 ~host Program.(
-              sprintf "test -f %s" (t.remote_path // t.witness)
-              |> Node.gcloud_run_command t.server |> sh
-            )))
+    let mount_command {server; remote_path; mount_point; _} =
+      let open Node in
+      sprintf "mount -t nfs %s:%s %s" server.name remote_path mount_point
 
-  let mount nfs ~on ~configuration  ~mount_point =
-    let open Ketrew.EDSL in
-    let name =
-      sprintf "Mount %s on %s" (show nfs) (Node.show on) in
-    let host = Configuration.gcloud_host configuration in
-    let make =
-      daemonize ~host ~using:`Python_daemon Program.(
-          Node.chain_gcloud ~sudo:true ~on [
-              sprintf "mkdir -p %s" mount_point;
-              mount_command nfs ~mount_point;
-          ]
-        )
-    in
-    let edges = [
-      depends_on (Node.ensure_software_packages on ~configuration [`Nfs_client]);
-      depends_on (ensure_server nfs ~configuration);
-      depends_on (Node.create_instance on ~configuration)
-    ] in
-    workflow_node without_product
-      ~done_when:(`Is_verified (
-          Condition.(
+    let witness t = t.witness
+
+    (* We check it's there but we don't set it up yet.  *)
+    let ensure_server t ~configuration =
+      let open Ketrew.EDSL in
+      let host = Configuration.gcloud_host configuration in
+      workflow_node without_product
+        ~name:(sprintf "Ensure NFS server %s is alive" (show t))
+        ~done_when:(`Is_verified Condition.(
             program ~returns:0 ~host Program.(
-                sprintf "test -f %s" (mount_point // nfs.witness)
-                |> Node.gcloud_run_command on |> sh
-              ))))
-      ~name ~make ~edges
+                sprintf "test -f %s" (t.remote_path // t.witness)
+                |> Node.gcloud_run_command t.server |> sh
+              )))
 
-  let clean_up_access_rights t ~configuration =
-    let open Ketrew.EDSL in
-    let host = Configuration.gcloud_host configuration in
-    let make =
-      daemonize ~host ~using:`Python_daemon Program.(
-          Node.chain_gcloud ~sudo:true ~on:t.server [
-            sprintf "chmod -R 777 %s" t.remote_path;
-          ]
-        )
-    in
-    let edges = [
-      depends_on (ensure_server t ~configuration);
-    ] in
-    workflow_node without_product ~make ~edges
-      ~name:(sprintf "Chmod 777 nfs://%s:%s"
-               (Node.show t.server) t.remote_path)
+    let ensure nfs ~on ~configuration =
+      let open Ketrew.EDSL in
+      let name =
+        sprintf "Mount %s on %s" (show nfs) (Node.show on) in
+      let host = Configuration.gcloud_host configuration in
+      let make =
+        daemonize ~host ~using:`Python_daemon Program.(
+            Node.chain_gcloud ~sudo:true ~on [
+              sprintf "mkdir -p %s" nfs.mount_point;
+              mount_command nfs;
+            ]
+          )
+      in
+      let edges = [
+        depends_on (Node.ensure_software_packages on ~configuration [`Nfs_client]);
+        depends_on (ensure_server nfs ~configuration);
+        depends_on (Node.create_instance on ~configuration)
+      ] in
+      workflow_node without_product
+        ~done_when:(`Is_verified (
+            Condition.(
+              program ~returns:0 ~host Program.(
+                  sprintf "test -f %s" (nfs.mount_point // nfs.witness)
+                  |> Node.gcloud_run_command on |> sh
+                ))))
+        ~name ~make ~edges
+
+    let clean_up_access_rights t ~configuration =
+      let open Ketrew.EDSL in
+      let host = Configuration.gcloud_host configuration in
+      let make =
+        daemonize ~host ~using:`Python_daemon Program.(
+            Node.chain_gcloud ~sudo:true ~on:t.server [
+              sprintf "chmod -R 777 %s" t.remote_path;
+            ]
+          )
+      in
+      let edges = [
+        depends_on (ensure_server t ~configuration);
+      ] in
+      workflow_node without_product ~make ~edges
+        ~name:(sprintf "Chmod 777 nfs://%s:%s"
+                 (Node.show t.server) t.remote_path)
+  end
 
   module Fresh = struct
     (** Setup new NFS servers with potential data-transfers to fill them up.
@@ -881,7 +887,7 @@ module Cluster = struct
   type t = {
     name: string [@main];
     compute_nodes: Node.t list;
-    nfs_mounts: (Nfs.t * [ `Path of string]) list;
+    nfs_mounts: Nfs.Mount.t list;
     torque_server: Node.t;
     ketrew_server: Node.t;
     users: User.t list [@default []];
@@ -910,16 +916,16 @@ module Cluster = struct
             ~on:t.ketrew_server ~configuration ();
         );
       ]
-      @ List.map t.nfs_mounts ~f:(fun (server, `Path _) ->
-          depends_on (Nfs.clean_up_access_rights server ~configuration))
+      @ List.map t.nfs_mounts ~f:(fun mount ->
+          depends_on (Nfs.Mount.clean_up_access_rights mount ~configuration))
       @ List.concat_map (all_nodes t) ~f:(fun on ->
           [
             depends_on (Node.ensure_software_packages on
                           ~configuration [`Biokepi_dependencies]);
             (* depends_on (Node.get_gcloud_node_ssh_key on ~configuration); *)
           ]
-          @ List.map t.nfs_mounts ~f:(fun (server, `Path mount_point) ->
-              depends_on (Nfs.mount server ~on ~configuration ~mount_point))
+          @ List.map t.nfs_mounts ~f:(fun mount ->
+              depends_on (Nfs.Mount.ensure mount ~on ~configuration))
           @ List.concat_map t.users ~f:(fun user ->
               [
                 depends_on (User.add user ~on ~configuration);

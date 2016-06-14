@@ -28,12 +28,13 @@ let configuration =
     ~ketrew_auth_token:(env_exn "KETREW_TOKEN")
 
 let test_deployment =
-  let nfs_server =
+  let nfs_mount =
     let server = Node.make (env_exn "NFS_VM") in
-    Nfs.make
+    Nfs.Mount.make
       ~server
       ~remote_path:(env_exn "NFS_PATH")
       ~witness:"./Hello.md"
+      ~mount_point:"/nfsmain"
   in
   let compute_node name =
     Node.make name
@@ -49,9 +50,7 @@ let test_deployment =
               compute_node (sprintf "%s-compute-%02d" prefix i)
             )
         )
-        ~nfs_mounts:[
-          nfs_server, `Path "/nfsmain";
-        ]
+        ~nfs_mounts:[nfs_mount]
         ~torque_server:(compute_node (name "pbs-server"))
         ~ketrew_server:(Node.make (name "ketrew-server"))
         ~users:[
