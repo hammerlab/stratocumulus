@@ -21,13 +21,13 @@ let prefix =
 
 let name s = sprintf "%s-%s" prefix s
 
+let configuration =
+  Configuration.make ()
+    ~gcloud_host
+    ?get_ketrew
+    ~ketrew_auth_token:(env_exn "KETREW_TOKEN")
+
 let test_deployment =
-  let configuration =
-    Configuration.make ()
-      ~gcloud_host
-      ?get_ketrew
-      ~ketrew_auth_token:(env_exn "KETREW_TOKEN")
-  in
   let nfs_server =
     let server = Node.make (env_exn "NFS_VM") in
     Nfs.make
@@ -42,7 +42,7 @@ let test_deployment =
   in
   Deployment.make (name "one")
     ~configuration
-    ~cluster:(
+    ~clusters:[
       Cluster.make (name "one-cluster")
         ~compute_nodes:(
           List.init nb_of_nodes (fun i ->
@@ -57,7 +57,15 @@ let test_deployment =
         ~users:[
           User.make ~unix_uid:20420 (sprintf "%s-user" prefix);
         ]
-    )
+    ]
+
+let test_nfs_deployment =
+  Deployment.make (name "nfstrato")
+    ~configuration
+    ~nfs_deployments:[
+      Nfs.Fresh.make (name "nfs")
+        ~size:(`GB 200)
+    ]
 
 let () =
   let cmds =
@@ -67,6 +75,13 @@ let () =
       ~print_command:"display"
       ~status_command:"status"
       ~ketrew_config_command:"ketrew-configuration"
+    @
+    Stratocumulus.Deploy.command_line test_nfs_deployment
+      ~up_command:"nfs-up"
+      ~down_command:"nfs-down"
+      ~print_command:"nfs-display"
+      ~status_command:"nfs-status"
+      ~ketrew_config_command:"nfs-ketrew-configuration"
   in
   let open Cmdliner in
   let version = Stratocumulus.Metadata.version |> Lazy.force in
