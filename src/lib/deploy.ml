@@ -970,16 +970,19 @@ module Cluster = struct
 
   let all_nodes t = t.ketrew_server :: t.torque_server :: t.compute_nodes
 
-  let ketrew_host t =
+  let ketrew_host ?work_dir t =
     ksprintf Ketrew.EDSL.Host.parse
       "ssh://%s@%s/%s/ketrew-host-playground"
       (List.hd t.users
        |> Option.value_map
          ~default:"" ~f:(fun u -> sprintf "%s@" u.User.username))
       (t.torque_server.Node.name)
-      (List.hd t.nfs_mounts
-       |> Option.value_map ~default:"tmp"
-         ~f:(fun nfs -> nfs.Nfs.Mount.mount_point))
+      (match work_dir with
+      | None ->
+        (List.hd t.nfs_mounts
+         |> Option.value_map ~default:"tmp"
+           ~f:(fun nfs -> nfs.Nfs.Mount.mount_point))
+      | Some p -> p)
 
   let up t ~configuration =
     let open Ketrew.EDSL in
@@ -1119,6 +1122,60 @@ module Cluster = struct
       ]
     in
     return conf
+
+  let biokepi_machine
+      ?(gatk_jar_location = `Fail "Cannot use GATK without the JAR location")
+      ?(mutect_jar_location = `Fail "Cannot use Mutect without the JAR location")
+      t ~configuration ~work_dir =
+    let host = ketrew_host t ~work_dir in
+    let max_processors =
+      match t.torque_server.Node.machine_type with
+      | `GCloud "n1-highmem-8" -> 8
+      | other -> 2 in
+    let run_program ?name ?(requirements = []) p =
+      let open Ketrew.EDSL in
+      let how =
+        (* For now we like to abuse a bit Demeter's login node: *)
+        if List.mem ~set:requirements `Quick_run
+        || List.mem ~set:requirements `Internet_access
+        then `On_login_node
+        else `Submit_to_pbs
+      in
+      begin match how with
+      | `On_login_node ->
+        daemonize ~using:`Python_daemon ~host p
+      | `Submit_to_pbs ->
+        let processors =
+          List.find_map requirements
+            ~f:(function `Processors n -> Some n | _ -> None) in
+        let name =
+          Option.map name ~f:(fun n ->
+              String.map n ~f:(function
+                | 'A' .. 'Z' | 'a' .. 'z' | '0' .. '9' as c -> c
+                | other -> '_')) in
+        pbs ~host ?name ?processors p
+      end
+    in
+    let open Ketrew.EDSL in
+    let open Biokepi.Setup.Download_reference_genomes in
+    let toolkit =
+      Biokepi.Setup.Tool_providers.default_toolkit ()
+        ~host ~install_tools_path:(work_dir // "toolkit")
+        ~run_program
+        ~gatk_jar_location:(fun () -> gatk_jar_location)
+        ~mutect_jar_location:(fun () -> mutect_jar_location) in
+    Biokepi.Machine.create "smondet-test-cluster"
+      ~max_processors
+      ~get_reference_genome:(fun name ->
+          Biokepi.Setup.Download_reference_genomes.get_reference_genome name
+            ~toolkit
+            ~host ~run_program
+            ~destination_path:(work_dir // "reference-genome"))
+      ~host
+      ~toolkit
+      ~run_program
+      ~work_dir:(work_dir // "work")
+
 
 end
 

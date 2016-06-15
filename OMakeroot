@@ -19,7 +19,7 @@ else
     GIT_COMMIT = None
     export
 
-LIB_PACKAGES = ketrew ppx_deriving.std
+LIB_PACKAGES = ketrew biokepi ppx_deriving.std
 
 OCAMLFLAGS = -bin-annot -absname -thread -short-paths -g \
              -keep-docs -keep-locs \
@@ -38,11 +38,11 @@ section # deployer library
 
 section # Executable tests
     OCAML_LOCAL_LIBS += src/lib/stratocumulus
-    OCAMLPACKS[] = $(LIB_PACKAGES) biokepi
+    OCAMLPACKS[] = $(LIB_PACKAGES)
     OCamlProgramOfFile(deployment-test, $(file src/test/test_deployment.ml))
     OCamlProgramOfFile(biokepi-test, $(file src/test/test_biokepi.ml))
 
-DotMerlin(./src, $(LIB_PACKAGES) biokepi)
+DotMerlin(./src, $(LIB_PACKAGES))
 
 install: install-lib-stratocumulus
 uninstall: uninstall-lib-stratocumulus
