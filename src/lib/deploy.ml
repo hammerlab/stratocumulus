@@ -67,14 +67,20 @@ end
 
 module Node = struct
 
-
+  type machine_type = [
+    | `Google_cloud of [
+        | `Highmem_8 (* "n1-highmem-8" *)
+        | `Small (* "g1-small" *)
+        | `Custom_named of string * int (* name * max-processors *)
+      ]
+  ] [@@deriving yojson, show, eq]
 
   type t = {
     name: string [@main];
     scopes: string list [@default ["compute-rw"]];
     zone: string [@default "us-east1-c"];
     os: [ `Xenial ] [@default `Xenial];
-    machine_type: [ `GCloud of string ] [@default `GCloud "g1-small"];
+    machine_type: machine_type [@default `Google_cloud `Small];
     java: [ `Oracle_7 | `Oracle_8 | `None ] [@default `None];
   } [@@deriving yojson, show, make, eq]
 
@@ -142,8 +148,15 @@ module Node = struct
     let open Ketrew.EDSL in
     let host = Configuration.gcloud_host configuration in
     let machine_type_options =
-      match t.machine_type with
-      | `GCloud mt -> sprintf "--machine-type %s" mt
+      let gmt =
+        match t.machine_type with
+        | `Google_cloud g ->
+          (match g with
+          | `Small -> "g1-small"
+          | `Highmem_8 -> "n1-highmem-8"
+          | `Custom_named (n, _) -> n)
+      in
+      sprintf "--machine-type %s" gmt
     in
     let wait_until_really_up =
       Shell_commands.wait_until_ok (gcloud_run_command t "uname -a") in
@@ -1130,8 +1143,13 @@ module Cluster = struct
     let host = ketrew_host t ~work_dir in
     let max_processors =
       match t.torque_server.Node.machine_type with
-      | `GCloud "n1-highmem-8" -> 8
-      | other -> 2 in
+      | `Google_cloud g ->
+        begin match g with
+        | `Small -> 1
+        | `Highmem_8 -> 8
+        | `Custom_named (_, n) -> n
+        end
+    in
     let run_program ?name ?(requirements = []) p =
       let open Ketrew.EDSL in
       let how =
