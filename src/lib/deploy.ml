@@ -231,6 +231,18 @@ end
 
 module Nfs = struct
 
+
+  (** This Ketrew node condition is used to make sure
+      {!Nfs.Mount.ensure_server} and {!Nfs.Fresh.ensure_witness} are
+      merged by equivalence when necessary. *)
+  let nfs_server_present_condition ~remote_path ~witness ~host ~server =
+    let open Ketrew.EDSL in
+    `Is_verified Condition.(
+        program ~returns:0 ~host Program.(
+            sprintf "test -f %s" (remote_path // witness)
+            |> Node.gcloud_run_command server |> sh
+          ))
+
   module Mount = struct
     (** Mount existing NFS servers on nodes. *)
 
@@ -254,13 +266,13 @@ module Nfs = struct
     let ensure_server t ~configuration =
       let open Ketrew.EDSL in
       let host = Configuration.gcloud_host configuration in
+      let done_when =
+        nfs_server_present_condition
+          ~remote_path:t.remote_path ~witness:t.witness
+          ~host ~server:t.server in
       workflow_node without_product
         ~name:(sprintf "Ensure NFS server %s is alive" (show t))
-        ~done_when:(`Is_verified Condition.(
-            program ~returns:0 ~host Program.(
-                sprintf "test -f %s" (t.remote_path // t.witness)
-                |> Node.gcloud_run_command t.server |> sh
-              )))
+        ~done_when
 
     let ensure nfs ~on ~configuration =
       let open Ketrew.EDSL in
@@ -396,15 +408,15 @@ module Nfs = struct
               |> sh
           ) in
       let name = sprintf "Ensure witness file of NFS deployment: %s" t.name in
-      let condition =
-        Condition.program ~host ~returns:0 Program.(
-            sprintf "test -f %s" (witness_path t)
-            |> Node.gcloud_run_command (as_node t) |> sh ) in
+      let done_when =
+        nfs_server_present_condition
+          ~remote_path:(storage_path t)
+          ~witness:(witness_path t |> Filename.basename)
+          ~host ~server:(as_node t) in
       let edges = [
         create_deployment t ~configuration |> depends_on;
       ] in
-      workflow_node without_product ~name ~make ~edges
-        ~done_when:(`Is_verified condition)
+      workflow_node without_product ~name ~make ~edges ~done_when
 
     let ensure t ~configuration = ensure_witness t ~configuration
 
