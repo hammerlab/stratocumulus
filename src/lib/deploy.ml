@@ -20,9 +20,13 @@ let (//) = Filename.concat
 module Say = struct
   let ok x =
     printf "%s\n%!" x
+  let warning x =
+    let hline = String.make 80 '-' in
+    printf "%s\n**WARNING**\n%s\n%s\n%!" hline x hline
   let code s =
     sprintf "```\n%s\n```" s
-  let sentence s = s ^ "\n"
+  let sentence s =
+    s ^ "\n"
   let (++) = (^)
   let list f l =
     match List.map ~f l with
@@ -348,10 +352,27 @@ module Nfs = struct
         ~remote_path:(storage_path t)
         ~mount_point
 
+    let name_length_warning t =
+      let potential_disk_name = t.name ^ "-vm-" ^ t.name ^ "-storage" in
+      if String.length potential_disk_name > 63
+      then Say.(
+          ksprintf sentence
+            "It seems that the name of this NFS deployment (%S) is \
+             too long.\nThe deployment scripts should try to create a \
+             resource named:\n    %S\nwhich violates the “Max 63 bytes” rule\n\
+             (which is inherited from the RFC [1035][RFC1035]).\n\n\
+             [RFC1035]: https://www.ietf.org/rfc/rfc1035.txt"
+            t.name
+            potential_disk_name
+          |> warning
+        );
+      ()
+
     let create_deployment t ~configuration =
       let open Ketrew.EDSL in
       let host = Configuration.gcloud_host configuration in
       let tmp_dir = Configuration.temp_file ~ext:"-gcloudnfs.d" configuration in
+      name_length_warning t;
       let test_liveness =
         Node.gcloud_run_command (as_node t)
           (sprintf "ls -l %s" (storage_path t)) in
