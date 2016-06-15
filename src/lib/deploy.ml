@@ -970,6 +970,17 @@ module Cluster = struct
 
   let all_nodes t = t.ketrew_server :: t.torque_server :: t.compute_nodes
 
+  let ketrew_host t =
+    ksprintf Ketrew.EDSL.Host.parse
+      "ssh://%s@%s/%s/ketrew-host-playground"
+      (List.hd t.users
+       |> Option.value_map
+         ~default:"" ~f:(fun u -> sprintf "%s@" u.User.username))
+      (t.torque_server.Node.name)
+      (List.hd t.nfs_mounts
+       |> Option.value_map ~default:"tmp"
+         ~f:(fun nfs -> nfs.Nfs.Mount.mount_point))
+
   let up t ~configuration =
     let open Ketrew.EDSL in
     let edges =
