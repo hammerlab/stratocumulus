@@ -370,9 +370,7 @@ module Nfs = struct
               shf "mkdir -p %s" tmp_dir;
               shf "cd %s" tmp_dir;
               sh "wget https://github.com/cioc/gcloudnfs/archive/master.zip";
-              sh "sudo apt-get install -y unzip";
               sh "unzip master.zip";
-              (* sh "git clone https://github.com/cioc/gcloudnfs.git"; *)
               sh "cd gcloudnfs-master/";
               shf "gcloud deployment-manager deployments create \
                    %s --config config.jinja \
