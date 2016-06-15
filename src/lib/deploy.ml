@@ -1121,7 +1121,7 @@ module Deployment = struct
         ~f:(fun nd -> Nfs.Fresh.destroy nd ~configuration |> depends_on)
       @
       List.map t.clusters
-        ~f:(fun c -> Cluster.up c ~configuration |> depends_on)
+        ~f:(fun c -> Cluster.down c ~configuration |> depends_on)
     in
     workflow_node without_product
       ~name:(sprintf "Disable deployment %s" t.name)
