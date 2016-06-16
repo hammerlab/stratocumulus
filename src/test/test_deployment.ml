@@ -21,19 +21,20 @@ let prefix =
 
 let name s = sprintf "%s-%s" prefix s
 
+let configuration =
+  Configuration.make ()
+    ~gcloud_host
+    ?get_ketrew
+    ~ketrew_auth_token:(env_exn "KETREW_TOKEN")
+
 let test_deployment =
-  let configuration =
-    Configuration.make ()
-      ~gcloud_host
-      ?get_ketrew
-      ~ketrew_auth_token:(env_exn "KETREW_TOKEN")
-  in
-  let nfs_server =
+  let nfs_mount =
     let server = Node.make (env_exn "NFS_VM") in
-    Nfs.make
+    Nfs.Mount.make
       ~server
       ~remote_path:(env_exn "NFS_PATH")
       ~witness:"./Hello.md"
+      ~mount_point:"/nfsmain"
   in
   let compute_node name =
     Node.make name
@@ -42,22 +43,37 @@ let test_deployment =
   in
   Deployment.make (name "one")
     ~configuration
-    ~cluster:(
+    ~clusters:[
       Cluster.make (name "one-cluster")
         ~compute_nodes:(
           List.init nb_of_nodes (fun i ->
               compute_node (sprintf "%s-compute-%02d" prefix i)
             )
         )
-        ~nfs_mounts:[
-          nfs_server, `Path "/nfsmain";
-        ]
+        ~nfs_mounts:[nfs_mount]
         ~torque_server:(compute_node (name "pbs-server"))
         ~ketrew_server:(Node.make (name "ketrew-server"))
         ~users:[
           User.make ~unix_uid:20420 (sprintf "%s-user" prefix);
         ]
-    )
+    ]
+
+let test_nfs_deployment =
+  let nfs = Nfs.Fresh.make (name "nfs") ~size:(`GB 200) in
+  let mini_cluster =
+    Cluster.make (name "nfstest-minicluster")
+      ~compute_nodes:[]
+      ~nfs_mounts:[Nfs.Fresh.as_mount nfs ~mount_point:"/fresh-storage"]
+      ~torque_server:(Node.make (name "nfstest-pbs-server"))
+      ~ketrew_server:(Node.make (name "nfstest-ketrew-server"))
+      ~users:[
+        User.make ~unix_uid:20420 (sprintf "%s-user" prefix);
+      ]
+  in
+  Deployment.make (name "nfstrato")
+    ~configuration
+    ~nfs_deployments:[ nfs ]
+    ~clusters:[ mini_cluster ]
 
 let () =
   let cmds =
@@ -67,6 +83,13 @@ let () =
       ~print_command:"display"
       ~status_command:"status"
       ~ketrew_config_command:"ketrew-configuration"
+    @
+    Stratocumulus.Deploy.command_line test_nfs_deployment
+      ~up_command:"nfs-up"
+      ~down_command:"nfs-down"
+      ~print_command:"nfs-display"
+      ~status_command:"nfs-status"
+      ~ketrew_config_command:"nfs-ketrew-configuration"
   in
   let open Cmdliner in
   let version = Stratocumulus.Metadata.version |> Lazy.force in

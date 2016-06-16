@@ -3,12 +3,30 @@ open Nonstd
 module String = Sosa.Native_string
 let (//) = Filename.concat
 
+
+  module Shell_commands = struct
+
+    let wait_until_ok ?(attempts = 10) ?(sleep = 10) cmd =
+      (* Hackish way of waiting for an SSH server to be ready: *)
+      sprintf "for count in $(seq 1 %d); do\n\
+               sleep %d\n\
+               echo \"Attempt $count\"\n\
+               %s && break ||  echo 'Attempt FAILED'\n\
+               done"
+        attempts sleep cmd
+  end
+
+
 module Say = struct
   let ok x =
     printf "%s\n%!" x
+  let warning x =
+    let hline = String.make 80 '-' in
+    printf "%s\n**WARNING**\n%s\n%s\n%!" hline x hline
   let code s =
     sprintf "```\n%s\n```" s
-  let sentence s = s ^ "\n"
+  let sentence s =
+    s ^ "\n"
   let (++) = (^)
   let list f l =
     match List.map ~f l with
@@ -128,15 +146,7 @@ module Node = struct
       | `GCloud mt -> sprintf "--machine-type %s" mt
     in
     let wait_until_really_up =
-      (* Hackish way of waiting for SSH server to be ready: *)
-      let open Program in
-      shf "for count in $(seq 1 10); do\n\
-           sleep 10\n\
-           echo \"Attempt at SSHing $count\"\n\
-           %s && break ||  echo 'Attempt FAILED'
-         done"
-        (gcloud_run_command t "uname -a")
-    in
+      Shell_commands.wait_until_ok (gcloud_run_command t "uname -a") in
     let make =
       daemonize ~host ~using:`Python_daemon Program.(
           shf "gcloud compute instances create %s \
@@ -151,13 +161,13 @@ module Node = struct
             t.zone
             (image_url t)
             machine_type_options
-          && wait_until_really_up
+          && sh wait_until_really_up
           && chain_gcloud ~on:t ~sudo:true [
             (* We get `aptdaemon` to allow concurrent installations:
                cf. http://manpages.ubuntu.com/manpages/xenial/en/man1/aptdcon.1.html *)
             "apt-get install -y aptdaemon";
           ]
-            
+
           && begin match t.java with
           | `None -> shf "echo No-java-installation"
           | `Oracle_7 | `Oracle_8 as oracle ->
@@ -224,77 +234,225 @@ module Node = struct
 end
 
 module Nfs = struct
-  type t = {
-    server: Node.t;
-    remote_path: string;
-    witness: string; (* Relative path to a file in the NFS path *)
-  } [@@deriving yojson, show, make]
 
-  let show {server; remote_path; _} =
-    sprintf "nfs://%s/%s" (Node.show server) remote_path
 
-  let mount_command {server; remote_path; _} ~mount_point =
-    let open Node in
-    sprintf "mount -t nfs %s:%s %s" server.name remote_path mount_point
-
-  let witness t = t.witness
-
-  (* We check it's there but we don't set it up yet.  *)
-  let ensure_server t ~configuration =
+  (** This Ketrew node condition is used to make sure
+      {!Nfs.Mount.ensure_server} and {!Nfs.Fresh.ensure_witness} are
+      merged by equivalence when necessary. *)
+  let nfs_server_present_condition ~remote_path ~witness ~host ~server =
     let open Ketrew.EDSL in
-    let host = Configuration.gcloud_host configuration in
-    workflow_node without_product
-      ~name:(sprintf "Ensure NFS server %s is alive" (show t))
-      ~done_when:(`Is_verified Condition.(
-          program ~returns:0 ~host Program.(
-              sprintf "test -f %s" (t.remote_path // t.witness)
-              |> Node.gcloud_run_command t.server |> sh
-            )))
+    `Is_verified Condition.(
+        program ~returns:0 ~host Program.(
+            sprintf "test -f %s" (remote_path // witness)
+            |> Node.gcloud_run_command server |> sh
+          ))
 
-  let mount nfs ~on ~configuration  ~mount_point =
-    let open Ketrew.EDSL in
-    let name =
-      sprintf "Mount %s on %s" (show nfs) (Node.show on) in
-    let host = Configuration.gcloud_host configuration in
-    let make =
-      daemonize ~host ~using:`Python_daemon Program.(
-          Node.chain_gcloud ~sudo:true ~on [
-              sprintf "mkdir -p %s" mount_point;
-              mount_command nfs ~mount_point;
-          ]
-        )
-    in
-    let edges = [
-      depends_on (Node.ensure_software_packages on ~configuration [`Nfs_client]);
-      depends_on (ensure_server nfs ~configuration);
-      depends_on (Node.create_instance on ~configuration)
-    ] in
-    workflow_node without_product
-      ~done_when:(`Is_verified (
-          Condition.(
-            program ~returns:0 ~host Program.(
-                sprintf "test -f %s" (mount_point // nfs.witness)
-                |> Node.gcloud_run_command on |> sh
-              ))))
-      ~name ~make ~edges
+  module Mount = struct
+    (** Mount existing NFS servers on nodes. *)
 
-  let clean_up_access_rights t ~configuration =
-    let open Ketrew.EDSL in
-    let host = Configuration.gcloud_host configuration in
-    let make =
-      daemonize ~host ~using:`Python_daemon Program.(
-          Node.chain_gcloud ~sudo:true ~on:t.server [
-            sprintf "chmod -R 777 %s" t.remote_path;
-          ]
-        )
-    in
-    let edges = [
-      depends_on (ensure_server t ~configuration);
-    ] in
-    workflow_node without_product ~make ~edges
-      ~name:(sprintf "Chmod 777 nfs://%s:%s"
-               (Node.show t.server) t.remote_path)
+    type t = {
+      server: Node.t;
+      remote_path: string;
+      witness: string; (* Relative path to a file in the NFS path *)
+      mount_point: string;
+    } [@@deriving yojson, show, make]
 
+    let show {server; remote_path; mount_point; _} =
+      sprintf "nfs://%s/%s?on=%s" (Node.show server) remote_path mount_point
+
+    let mount_command {server; remote_path; mount_point; _} =
+      let open Node in
+      sprintf "mount -t nfs %s:%s %s" server.name remote_path mount_point
+
+    let witness t = t.witness
+
+    (* We check it's there but we don't set it up yet.  *)
+    let ensure_server t ~configuration =
+      let open Ketrew.EDSL in
+      let host = Configuration.gcloud_host configuration in
+      let done_when =
+        nfs_server_present_condition
+          ~remote_path:t.remote_path ~witness:t.witness
+          ~host ~server:t.server in
+      workflow_node without_product
+        ~name:(sprintf "Ensure NFS server %s is alive" (show t))
+        ~done_when
+
+    let ensure nfs ~on ~configuration =
+      let open Ketrew.EDSL in
+      let name =
+        sprintf "Mount %s on %s" (show nfs) (Node.show on) in
+      let host = Configuration.gcloud_host configuration in
+      let make =
+        daemonize ~host ~using:`Python_daemon Program.(
+            Node.chain_gcloud ~sudo:true ~on [
+              sprintf "mkdir -p %s" nfs.mount_point;
+              mount_command nfs;
+            ]
+          )
+      in
+      let edges = [
+        depends_on (Node.ensure_software_packages on ~configuration [`Nfs_client]);
+        depends_on (ensure_server nfs ~configuration);
+        depends_on (Node.create_instance on ~configuration)
+      ] in
+      workflow_node without_product
+        ~done_when:(`Is_verified (
+            Condition.(
+              program ~returns:0 ~host Program.(
+                  sprintf "test -f %s" (nfs.mount_point // nfs.witness)
+                  |> Node.gcloud_run_command on |> sh
+                ))))
+        ~name ~make ~edges
+
+    let clean_up_access_rights t ~configuration =
+      let open Ketrew.EDSL in
+      let host = Configuration.gcloud_host configuration in
+      let make =
+        daemonize ~host ~using:`Python_daemon Program.(
+            Node.chain_gcloud ~sudo:true ~on:t.server [
+              sprintf "chmod -R 777 %s" t.remote_path;
+            ]
+          )
+      in
+      let edges = [
+        depends_on (ensure_server t ~configuration);
+      ] in
+      workflow_node without_product ~make ~edges
+        ~name:(sprintf "Chmod 777 nfs://%s:%s"
+                 (Node.show t.server) t.remote_path)
+  end
+
+  module Fresh = struct
+    (** Setup new NFS servers with potential data-transfers to fill them up.
+
+        {{:https://github.com/cioc/gcloudnfs}["gcloudnfs"] repository}
+
+    *)
+    type t = {
+      name: string [@main];
+      witness: [ `Create of string | `Existing of string ]
+          [@default `Create ".strato-witness.txt"];
+      zone: string [@default "us-east1-c"];
+      machine_type: [ `GCloud of string ] [@default `GCloud "n1-highmem-2"];
+      size: [ `GB of int ];
+    } [@@deriving yojson, show, make]
+
+    let as_node t = Node.make (t.name ^ "-vm")
+
+    let storage_path t = sprintf "/%s-storage" t.name
+
+    let witness_path t =
+      storage_path t // (match t.witness with `Existing p -> p | `Create p -> p)
+
+    let as_mount t ~mount_point =
+      Mount.make
+        ~server:(as_node t)
+        ~witness:(witness_path t |> Filename.basename)
+        ~remote_path:(storage_path t)
+        ~mount_point
+
+    let name_length_warning t =
+      let potential_disk_name = t.name ^ "-vm-" ^ t.name ^ "-storage" in
+      if String.length potential_disk_name > 63
+      then Say.(
+          ksprintf sentence
+            "It seems that the name of this NFS deployment (%S) is \
+             too long.\nThe deployment scripts should try to create a \
+             resource named:\n    %S\nwhich violates the “Max 63 bytes” rule\n\
+             (which is inherited from the RFC [1035][RFC1035]).\n\n\
+             [RFC1035]: https://www.ietf.org/rfc/rfc1035.txt"
+            t.name
+            potential_disk_name
+          |> warning
+        );
+      ()
+
+    let create_deployment t ~configuration =
+      let open Ketrew.EDSL in
+      let host = Configuration.gcloud_host configuration in
+      let tmp_dir = Configuration.temp_file ~ext:"-gcloudnfs.d" configuration in
+      name_length_warning t;
+      let test_liveness =
+        Node.gcloud_run_command (as_node t)
+          (sprintf "ls -l %s" (storage_path t)) in
+      let make =
+        let properties = [
+          "zone", t.zone;
+          "machineType", (let `GCloud g = t.machine_type in g);
+          "dataDiskSizeGb", (let `GB gb = t.size in Int.to_string gb);
+          "storagePoolName", t.name ^ "-storage";
+          "network", "default";
+          "adminPassword", t.name ^ "-password";
+          "dataDiskType", "pd-standard";
+        ] in
+        daemonize ~host ~using:`Python_daemon Program.(
+            chain [
+              shf "mkdir -p %s" tmp_dir;
+              shf "cd %s" tmp_dir;
+              sh "wget https://github.com/cioc/gcloudnfs/archive/master.zip";
+              sh "unzip master.zip";
+              sh "cd gcloudnfs-master/";
+              shf "gcloud deployment-manager deployments create \
+                   %s --config config.jinja \
+                   --properties %s"
+                t.name
+                (List.map properties ~f:(fun (a, b) -> a ^ "=" ^ b)
+                 |> String.concat ~sep:",");
+              sh (Shell_commands.wait_until_ok
+                    (* We wait for the ZFS mount-point to be setup.
+                       More or less 5 minutes after the command returns have
+                       been observed before. *)
+                    ~attempts:20 ~sleep:30 test_liveness);
+            ]
+          )
+      in
+      let condition =
+        Condition.program ~host ~returns:0 Program.(sh test_liveness) in
+      let name = sprintf "Create NFS deployment: %s" t.name in
+      workflow_node without_product ~name ~make
+        ~done_when:(`Is_verified condition)
+
+    let ensure_witness t ~configuration =
+      let open Ketrew.EDSL in
+      let host = Configuration.gcloud_host configuration in
+      let make =
+        daemonize ~host ~using:`Python_daemon Program.(
+            match t.witness with
+            | `Existing _ -> chain []
+            | `Create path ->
+              sprintf "echo \"Created by stratocumulus on $(date -R)\" > %s"
+                (storage_path t // path)
+              |> Node.gcloud_run_command (as_node t)
+              |> sh
+          ) in
+      let name = sprintf "Ensure witness file of NFS deployment: %s" t.name in
+      let done_when =
+        nfs_server_present_condition
+          ~remote_path:(storage_path t)
+          ~witness:(witness_path t |> Filename.basename)
+          ~host ~server:(as_node t) in
+      let edges = [
+        create_deployment t ~configuration |> depends_on;
+      ] in
+      workflow_node without_product ~name ~make ~edges ~done_when
+
+    let ensure t ~configuration = ensure_witness t ~configuration
+
+    let destroy t ~configuration =
+      let open Ketrew.EDSL in
+      let host = Configuration.gcloud_host configuration in
+      let make =
+        daemonize ~host ~using:`Python_daemon Program.(
+            shf
+              "gcloud deployment-manager deployments delete %s -q"
+              t.name
+          ) in
+      let name = sprintf "Destroy NFS deployment: %s" t.name in
+      workflow_node without_product ~name ~make
+
+
+  end
 end
 
 module Torque = struct
@@ -799,7 +957,7 @@ module Cluster = struct
   type t = {
     name: string [@main];
     compute_nodes: Node.t list;
-    nfs_mounts: (Nfs.t * [ `Path of string]) list;
+    nfs_mounts: Nfs.Mount.t list;
     torque_server: Node.t;
     ketrew_server: Node.t;
     users: User.t list [@default []];
@@ -828,16 +986,16 @@ module Cluster = struct
             ~on:t.ketrew_server ~configuration ();
         );
       ]
-      @ List.map t.nfs_mounts ~f:(fun (server, `Path _) ->
-          depends_on (Nfs.clean_up_access_rights server ~configuration))
+      @ List.map t.nfs_mounts ~f:(fun mount ->
+          depends_on (Nfs.Mount.clean_up_access_rights mount ~configuration))
       @ List.concat_map (all_nodes t) ~f:(fun on ->
           [
             depends_on (Node.ensure_software_packages on
                           ~configuration [`Biokepi_dependencies]);
             (* depends_on (Node.get_gcloud_node_ssh_key on ~configuration); *)
           ]
-          @ List.map t.nfs_mounts ~f:(fun (server, `Path mount_point) ->
-              depends_on (Nfs.mount server ~on ~configuration ~mount_point))
+          @ List.map t.nfs_mounts ~f:(fun mount ->
+              depends_on (Nfs.Mount.ensure mount ~on ~configuration))
           @ List.concat_map t.users ~f:(fun user ->
               [
                 depends_on (User.add user ~on ~configuration);
@@ -958,15 +1116,20 @@ module Deployment = struct
   type t = {
     name: string [@main];
     configuration: Configuration.t;
-    cluster: Cluster.t;
+    clusters: Cluster.t list [@default []];
+    nfs_deployments: Nfs.Fresh.t list [@default []];
   } [@@deriving yojson, show, make]
 
   let up t =
     let open Ketrew.EDSL in
     let configuration = t.configuration in
-    let edges = [
-      depends_on (Cluster.up t.cluster ~configuration);
-    ] in
+    let edges =
+      List.map t.nfs_deployments
+        ~f:(fun nd -> Nfs.Fresh.ensure nd ~configuration |> depends_on)
+      @
+      List.map t.clusters
+        ~f:(fun c -> Cluster.up c ~configuration |> depends_on)
+    in
     workflow_node without_product
       ~name:(sprintf "Enable deployment %s" t.name)
       ~edges
@@ -974,23 +1137,32 @@ module Deployment = struct
   let down t =
     let open Ketrew.EDSL in
     let configuration = t.configuration in
-    let edges = [
-      depends_on (Cluster.down t.cluster ~configuration);
-    ] in
+    let edges =
+      List.map t.nfs_deployments
+        ~f:(fun nd -> Nfs.Fresh.destroy nd ~configuration |> depends_on)
+      @
+      List.map t.clusters
+        ~f:(fun c -> Cluster.down c ~configuration |> depends_on)
+    in
     workflow_node without_product
       ~name:(sprintf "Disable deployment %s" t.name)
       ~edges
 
   let status t =
     let configuration = t.configuration in
-    Cluster.status ~configuration t.cluster
+    List.map t.clusters ~f:(fun cluster ->
+        Cluster.status ~configuration cluster)
+    |> String.concat ~sep:"\n"
 
   let output_ketrew_client_config t ~path =
     Lwt_main.run begin
       let open Pvem_lwt_unix.Deferred_result in
       let configuration = t.configuration in
-      let profile = "default" in
-      Cluster.ketrew_client_config t.cluster ~profile ~configuration
+      let profile =
+        if List.length t.clusters = 1 then Some "default" else None in
+      Pvem_lwt_unix.Deferred_list.while_sequential t.clusters ~f:(fun cluster ->
+          Cluster.ketrew_client_config cluster ?profile ~configuration)
+      >>| List.concat
       >>= fun config ->
       let content = Ketrew.Configuration.to_json config in
       Pvem_lwt_unix.IO.write_file path ~content

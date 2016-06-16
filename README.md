@@ -21,6 +21,7 @@ Cloud Requirements:
 - a [“One-click NFS server”](https://cloud.google.com/launcher/docs/single-node-fileserver).
 - a host with `gcloud` installed and configured **and** password-less
   `~/.ssh/google_compute_engine` ssh-keys (`$GCLOUD_HOST` below).
+  (also make sure some basic utilities are there like `unzip`, `wget`, …)
 
 The test is configured with environment variables:
 
