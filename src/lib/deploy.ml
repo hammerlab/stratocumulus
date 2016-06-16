@@ -67,14 +67,20 @@ end
 
 module Node = struct
 
-
+  type machine_type = [
+    | `Google_cloud of [
+        | `Highmem_8 (** "n1-highmem-8" (8 vCPUs, 52 GB memory) *)
+        | `Small (** "g1-small" (1 vCPU, 1.7 GB memory) *)
+        | `Custom_named of string * int (* name * max-processors *)
+      ]
+  ] [@@deriving yojson, show, eq]
 
   type t = {
     name: string [@main];
     scopes: string list [@default ["compute-rw"]];
     zone: string [@default "us-east1-c"];
     os: [ `Xenial ] [@default `Xenial];
-    machine_type: [ `GCloud of string ] [@default `GCloud "g1-small"];
+    machine_type: machine_type [@default `Google_cloud `Small];
     java: [ `Oracle_7 | `Oracle_8 | `None ] [@default `None];
   } [@@deriving yojson, show, make, eq]
 
@@ -142,8 +148,15 @@ module Node = struct
     let open Ketrew.EDSL in
     let host = Configuration.gcloud_host configuration in
     let machine_type_options =
-      match t.machine_type with
-      | `GCloud mt -> sprintf "--machine-type %s" mt
+      let gmt =
+        match t.machine_type with
+        | `Google_cloud g ->
+          (match g with
+          | `Small -> "g1-small"
+          | `Highmem_8 -> "n1-highmem-8"
+          | `Custom_named (n, _) -> n)
+      in
+      sprintf "--machine-type %s" gmt
     in
     let wait_until_really_up =
       Shell_commands.wait_until_ok (gcloud_run_command t "uname -a") in
@@ -970,6 +983,20 @@ module Cluster = struct
 
   let all_nodes t = t.ketrew_server :: t.torque_server :: t.compute_nodes
 
+  let ketrew_host ?work_dir t =
+    ksprintf Ketrew.EDSL.Host.parse
+      "ssh://%s%s/%s/ketrew-host-playground"
+      (List.hd t.users
+       |> Option.value_map
+         ~default:"" ~f:(fun u -> sprintf "%s@" u.User.username))
+      (t.torque_server.Node.name)
+      (match work_dir with
+      | None ->
+        (List.hd t.nfs_mounts
+         |> Option.value_map ~default:"tmp"
+           ~f:(fun nfs -> nfs.Nfs.Mount.mount_point))
+      | Some p -> p)
+
   let up t ~configuration =
     let open Ketrew.EDSL in
     let edges =
@@ -1108,6 +1135,65 @@ module Cluster = struct
       ]
     in
     return conf
+
+  let biokepi_machine
+      ?(gatk_jar_location = `Fail "Cannot use GATK without the JAR location")
+      ?(mutect_jar_location = `Fail "Cannot use Mutect without the JAR location")
+      t ~configuration ~work_dir =
+    let host = ketrew_host t ~work_dir in
+    let max_processors =
+      match t.torque_server.Node.machine_type with
+      | `Google_cloud g ->
+        begin match g with
+        | `Small -> 1
+        | `Highmem_8 -> 8
+        | `Custom_named (_, n) -> n
+        end
+    in
+    let run_program ?name ?(requirements = []) p =
+      let open Ketrew.EDSL in
+      let how =
+        (* For now we like to abuse a bit Demeter's login node: *)
+        if List.mem ~set:requirements `Quick_run
+        || List.mem ~set:requirements `Internet_access
+        then `On_login_node
+        else `Submit_to_pbs
+      in
+      begin match how with
+      | `On_login_node ->
+        daemonize ~using:`Python_daemon ~host p
+      | `Submit_to_pbs ->
+        let processors =
+          List.find_map requirements
+            ~f:(function `Processors n -> Some n | _ -> None) in
+        let name =
+          Option.map name ~f:(fun n ->
+              String.map n ~f:(function
+                | 'A' .. 'Z' | 'a' .. 'z' | '0' .. '9' as c -> c
+                | other -> '_')) in
+        pbs ~host ?name ?processors p
+      end
+    in
+    let open Ketrew.EDSL in
+    let open Biokepi.Setup.Download_reference_genomes in
+    let toolkit =
+      Biokepi.Setup.Tool_providers.default_toolkit ()
+        ~host ~install_tools_path:(work_dir // "toolkit")
+        ~run_program
+        ~gatk_jar_location:(fun () -> gatk_jar_location)
+        ~mutect_jar_location:(fun () -> mutect_jar_location) in
+    Biokepi.Machine.create "smondet-test-cluster"
+      ~max_processors
+      ~get_reference_genome:(fun name ->
+          Biokepi.Setup.Download_reference_genomes.get_reference_genome name
+            ~toolkit
+            ~host ~run_program
+            ~destination_path:(work_dir // "reference-genome"))
+      ~host
+      ~toolkit
+      ~run_program
+      ~work_dir:(work_dir // "work")
+
 
 end
 

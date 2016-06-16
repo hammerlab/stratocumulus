@@ -39,7 +39,7 @@ let test_deployment =
   let compute_node name =
     Node.make name
       ~java:`Oracle_7
-      ~machine_type:(`GCloud "n1-highmem-8")
+      ~machine_type:(`Google_cloud `Highmem_8)
   in
   Deployment.make (name "one")
     ~configuration
