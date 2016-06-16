@@ -985,7 +985,7 @@ module Cluster = struct
 
   let ketrew_host ?work_dir t =
     ksprintf Ketrew.EDSL.Host.parse
-      "ssh://%s@%s/%s/ketrew-host-playground"
+      "ssh://%s%s/%s/ketrew-host-playground"
       (List.hd t.users
        |> Option.value_map
          ~default:"" ~f:(fun u -> sprintf "%s@" u.User.username))
