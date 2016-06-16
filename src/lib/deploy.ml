@@ -69,8 +69,8 @@ module Node = struct
 
   type machine_type = [
     | `Google_cloud of [
-        | `Highmem_8 (* "n1-highmem-8" *)
-        | `Small (* "g1-small" *)
+        | `Highmem_8 (** "n1-highmem-8" (8 vCPUs, 52 GB memory) *)
+        | `Small (** "g1-small" (1 vCPU, 1.7 GB memory) *)
         | `Custom_named of string * int (* name * max-processors *)
       ]
   ] [@@deriving yojson, show, eq]
