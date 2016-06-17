@@ -48,6 +48,7 @@ module Configuration = struct
   let gcloud_host t = Ketrew.EDSL.Host.parse t.gcloud_host
   let compute_machine_type t =
     t.compute_machine_type
+
   let temp_file ?(ext = ".txt") t =
     gcloud_host t
     |> Ketrew_pure.Host.playground
@@ -55,6 +56,14 @@ module Configuration = struct
     |> (fun path ->
         Ketrew_pure.Path.to_string path
         // Ketrew_pure.Internal_pervasives.Unique_id.(create ()) ^ ext)
+
+  (** A constant semi-temp directory for constant tings like scripts *)
+  let local_directory t =
+    gcloud_host t
+    |> Ketrew_pure.Host.playground
+    |> Option.value_exn
+      ~msg:"Configuration.local_directory: GCloud Host has no playground!"
+    |> (fun path -> Ketrew_pure.Path.to_string path // "local")
 
   let get_ketrew t = t.get_ketrew
 
@@ -351,9 +360,14 @@ module Nfs = struct
       size: [ `GB of int ];
     } [@@deriving yojson, show, make]
 
-    let as_node t = Node.make (t.name ^ "-vm")
+    let vm_name t = t.name ^ "-nfsservervm"
+    let disk_name t = t.name ^ "-pdisk"
 
-    let storage_path t = sprintf "/%s-storage" t.name
+    let as_node t = Node.make (vm_name t)
+
+    let storage_path t =
+      (* sprintf "/%s" (disk_name t) *)
+      "/nfs-pool"
 
     let witness_path t =
       storage_path t // (match t.witness with `Existing p -> p | `Create p -> p)
@@ -381,37 +395,77 @@ module Nfs = struct
         );
       ()
 
+
+    let script_dir ~configuration =
+      Configuration.local_directory configuration // "cioc-gcloudnfs"
+
+    let set_GPROJECT = "export GPROJECT=`gcloud config list | awk ' /^project/ {print $3}'`"
+
+    (* ./gcloudnfs create --project <project> --zone <zone> --network <network>
+       --machine-type <machine-type> --server-name <server-name>
+       --data-disk-name <data-disk-name> --data-disk-type <data-disk-type>
+       --data-disk-size <data-disk-size> *)
+
+    let ensure_script ~configuration =
+      let open Ketrew.EDSL in
+      let host = Configuration.gcloud_host configuration in
+      let make =
+        daemonize ~host ~using:`Python_daemon Program.(
+            chain [
+              shf "rm -fr %s" (script_dir ~configuration);
+              shf "mkdir -p %s" (script_dir ~configuration);
+              shf "cd %s" (script_dir ~configuration);
+              sh "wget https://github.com/cioc/gcloudnfs/archive/master.zip";
+              sh "unzip master.zip";
+              sh "cd gcloudnfs-master/";
+              sh "sudo apt-get update";
+              sh "sudo apt-get install -y python-pip";
+              sh "sudo pip install --upgrade google-api-python-client";
+            ]
+          ) in
+      let product =
+        single_file ~host
+          (script_dir ~configuration // "gcloudnfs-master" // "gcloudnfs") in
+      let name = sprintf "Get NFS deployment script" in
+      workflow_node product ~name ~make
+
+    let parameters t how =
+      let common =
+        [
+          "project", "$GPROJECT";
+          "zone", t.zone;
+          "network", "default";
+          "server-name", (vm_name t);
+          "data-disk-name", disk_name t;
+        ] in
+      match how with
+      | `Up ->
+        common @ [
+          "data-disk-type", "pd-standard";
+          "data-disk-size", (let `GB gb = t.size in Int.to_string gb);
+          "machine-type", (let `GCloud g = t.machine_type in g);
+        ]
+      | `Down -> common
+
+    let parameters_to_options p =
+      List.map p ~f:(fun (a, b) -> sprintf "--%s %s"a b)
+      |> String.concat ~sep:" "
+
     let create_deployment t ~configuration =
       let open Ketrew.EDSL in
       let host = Configuration.gcloud_host configuration in
-      let tmp_dir = Configuration.temp_file ~ext:"-gcloudnfs.d" configuration in
       name_length_warning t;
       let test_liveness =
         Node.gcloud_run_command (as_node t)
           (sprintf "ls -l %s" (storage_path t)) in
+      let script = ensure_script ~configuration in
       let make =
-        let properties = [
-          "zone", t.zone;
-          "machineType", (let `GCloud g = t.machine_type in g);
-          "dataDiskSizeGb", (let `GB gb = t.size in Int.to_string gb);
-          "storagePoolName", t.name ^ "-storage";
-          "network", "default";
-          "adminPassword", t.name ^ "-password";
-          "dataDiskType", "pd-standard";
-        ] in
         daemonize ~host ~using:`Python_daemon Program.(
             chain [
-              shf "mkdir -p %s" tmp_dir;
-              shf "cd %s" tmp_dir;
-              sh "wget https://github.com/cioc/gcloudnfs/archive/master.zip";
-              sh "unzip master.zip";
-              sh "cd gcloudnfs-master/";
-              shf "gcloud deployment-manager deployments create \
-                   %s --config config.jinja \
-                   --properties %s"
-                t.name
-                (List.map properties ~f:(fun (a, b) -> a ^ "=" ^ b)
-                 |> String.concat ~sep:",");
+              sh set_GPROJECT;
+              shf "%s create %s"
+                script#product#path
+                (parameters t `Up |> parameters_to_options);
               sh (Shell_commands.wait_until_ok
                     (* We wait for the ZFS mount-point to be setup.
                        More or less 5 minutes after the command returns have
@@ -425,6 +479,7 @@ module Nfs = struct
       let name = sprintf "Create NFS deployment: %s" t.name in
       workflow_node without_product ~name ~make
         ~done_when:(`Is_verified condition)
+        ~edges:[ depends_on script ]
 
     let ensure_witness t ~configuration =
       let open Ketrew.EDSL in
@@ -452,17 +507,26 @@ module Nfs = struct
 
     let ensure t ~configuration = ensure_witness t ~configuration
 
+
+    (* ./gcloudnfs destroy --project <project> --zone <zone>
+       --network <network> --data-disk-name <data-disk-name>
+       --server-name <server-name> *)
     let destroy t ~configuration =
       let open Ketrew.EDSL in
       let host = Configuration.gcloud_host configuration in
+      let script = ensure_script ~configuration in
       let make =
         daemonize ~host ~using:`Python_daemon Program.(
-            shf
-              "gcloud deployment-manager deployments delete %s -q"
-              t.name
+            chain [
+              sh set_GPROJECT;
+              shf "%s destroy %s"
+                script#product#path
+                (parameters t `Down |> parameters_to_options)
+            ]
           ) in
       let name = sprintf "Destroy NFS deployment: %s" t.name in
       workflow_node without_product ~name ~make
+        ~edges:[depends_on script]
 
 
   end
