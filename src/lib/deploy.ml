@@ -358,10 +358,12 @@ module Nfs = struct
       zone: string [@default "us-east1-c"];
       machine_type: [ `GCloud of string ] [@default `GCloud "n1-highmem-2"];
       size: [ `GB of int ];
+      reuse_data_disk: string option;
     } [@@deriving yojson, show, make]
 
     let vm_name t = t.name ^ "-nfsservervm"
-    let disk_name t = t.name ^ "-pdisk"
+    let disk_name t =
+      Option.value t.reuse_data_disk ~default:(t.name ^ "-pdisk")
 
     let as_node t = Node.make (vm_name t)
 
@@ -429,7 +431,7 @@ module Nfs = struct
       let name = sprintf "Get NFS deployment script" in
       workflow_node product ~name ~make
 
-    let parameters t how =
+    let options t how =
       let common =
         [
           "project", "$GPROJECT";
@@ -438,18 +440,20 @@ module Nfs = struct
           "server-name", (vm_name t);
           "data-disk-name", disk_name t;
         ] in
-      match how with
-      | `Up ->
-        common @ [
-          "data-disk-type", "pd-standard";
-          "data-disk-size", (let `GB gb = t.size in Int.to_string gb);
-          "machine-type", (let `GCloud g = t.machine_type in g);
-        ]
-      | `Down -> common
-
-    let parameters_to_options p =
-      List.map p ~f:(fun (a, b) -> sprintf "--%s %s"a b)
-      |> String.concat ~sep:" "
+      let params =
+        match how with
+        | `Up ->
+          common @ [
+            "data-disk-type", "pd-standard";
+            "data-disk-size", (let `GB gb = t.size in Int.to_string gb);
+            "machine-type", (let `GCloud g = t.machine_type in g);
+          ]
+        | `Down -> common
+      in
+      (if t.reuse_data_disk = None then "" else "--reuse-data-disk ")
+      ^
+      (List.map params ~f:(fun (a, b) -> sprintf "--%s %s"a b)
+       |> String.concat ~sep:" ")
 
     let create_deployment t ~configuration =
       let open Ketrew.EDSL in
@@ -465,7 +469,7 @@ module Nfs = struct
               sh set_GPROJECT;
               shf "%s create %s"
                 script#product#path
-                (parameters t `Up |> parameters_to_options);
+                (options t `Up);
               sh (Shell_commands.wait_until_ok
                     (* We wait for the ZFS mount-point to be setup.
                        More or less 5 minutes after the command returns have
@@ -521,7 +525,7 @@ module Nfs = struct
               sh set_GPROJECT;
               shf "%s destroy %s"
                 script#product#path
-                (parameters t `Down |> parameters_to_options)
+                (options t `Down)
             ]
           ) in
       let name = sprintf "Destroy NFS deployment: %s" t.name in

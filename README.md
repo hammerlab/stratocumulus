@@ -47,6 +47,10 @@ export NFS_PATH="/some-test-storage"
 
 # The URL to download the GATK:
 export GATK_JAR_URL="http://example.com/path/to/GenomeAnalysisTK_35.jar"
+
+# (optional) make the 2nd test (NFS deployment) reuse an existing google disk:
+export REUSE_DATA_DISK=more-persistent-disk
+
 ```
 
 Start the deployment workflow (a “deployer“ Ketrew server is assumed to be

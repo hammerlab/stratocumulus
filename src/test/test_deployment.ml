@@ -59,7 +59,10 @@ let test_deployment =
     ]
 
 let test_nfs_deployment =
-  let nfs = Nfs.Fresh.make (name "nfs") ~size:(`GB 200) in
+  let nfs =
+    Nfs.Fresh.make (name "nfs") ~size:(`GB 200)
+      ?reuse_data_disk:(env "REUSE_DATA_DISK")
+  in
   let mini_cluster =
     Cluster.make (name "nfstest-minicluster")
       ~compute_nodes:[]
