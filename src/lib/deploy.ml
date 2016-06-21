@@ -545,12 +545,12 @@ module Torque = struct
 
 
   let qsub_id_1 = (Random.int 10000)
-  let test_qsub_condition ~on =
+  let test_qsub_condition ~host ~on =
     let open Ketrew.EDSL in
     (* The name has to be small-ish for the hacky test to work *)
       let qn = sprintf "T%04d" qsub_id_1 in
       Condition.(
-        program ~returns:0 Program.(
+        program ~returns:0 ~host Program.(
             (* Run a minimal test, as a USER *)
             chain [
               sprintf "echo \"sleep 42\" | qsub -N %s" qn
@@ -626,7 +626,7 @@ module Torque = struct
                     on ~configuration [`Torque_server]);
       depends_on (Node.create_instance on ~configuration)
     ] in
-    let condition = test_qsub_condition ~on in
+    let condition = test_qsub_condition ~host ~on in
     workflow_node without_product
       ~done_when:(`Is_verified condition)
       ~name ~make ~edges
@@ -666,7 +666,7 @@ module Torque = struct
       depends_on (setup_server ~on:server ~configuration);
     ] in
     let condition =
-      test_qnode_condition ~server on |> Condition.program ~returns:0 in
+      test_qnode_condition ~server on |> Condition.program ~host ~returns:0 in
     workflow_node without_product
       ~done_when:(`Is_verified condition)
       ~name ~make ~edges
@@ -736,7 +736,7 @@ module Ketrew_server = struct
     let cert_key =
       object
         method is_done =
-          Some Condition.(program ~returns:0 Program.(
+          Some Condition.(program ~host ~returns:0 Program.(
               chain [
                 sprintf "test -f %s" cert |> Node.gcloud_run_command on |> sh;
                 sprintf "test -f %s" key |> Node.gcloud_run_command on |> sh;
