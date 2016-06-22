@@ -4,17 +4,17 @@ module String = Sosa.Native_string
 let (//) = Filename.concat
 
 
-  module Shell_commands = struct
+module Shell_commands = struct
 
-    let wait_until_ok ?(attempts = 10) ?(sleep = 10) cmd =
-      (* Hackish way of waiting for an SSH server to be ready: *)
-      sprintf "for count in $(seq 1 %d); do\n\
-               sleep %d\n\
-               echo \"Attempt $count\"\n\
-               %s && break ||  echo 'Attempt FAILED'\n\
-               done"
-        attempts sleep cmd
-  end
+  let wait_until_ok ?(attempts = 10) ?(sleep = 10) cmd =
+    (* Hackish way of waiting for an SSH server to be ready: *)
+    sprintf "for count in $(seq 1 %d); do\n\
+             sleep %d\n\
+             echo \"Attempt $count\"\n\
+             %s && break ||  echo 'Attempt FAILED'\n\
+             done"
+      attempts sleep cmd
+end
 
 
 module Say = struct
