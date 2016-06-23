@@ -56,6 +56,35 @@ create_ketrew_container() {
        --port=443 --target-port=$PORT --type=LoadBalancer
 }
 
+add_ssh_config(){
+    ensure_kubectl
+    ensure_prefix_set
+
+    local tmpdir=/tmp/$PREFIX-sshconfig/
+    mkdir -p $tmpdir
+
+    if [ -f $tmpdir/kserver.pub ] ; then
+        say "Reusing the Key-pair: $tmpdir/kserver"
+    else
+        ssh-keygen -t rsa -N '' -f $tmpdir/kserver
+    fi
+    echo 'StrictHostKeyChecking no' > $tmpdir/config
+    echo "IdentityFile ~/.ssh/kserver" >> $tmpdir/config
+
+    local pod=$(kubectl get pods | grep "$PREFIX" | awk '{print $1}')
+    say "Guessed POD name: $pod"
+    kubectl exec -i $pod -- /bin/bash -c 'uname -a ; echo "USER: $(whoami)"'
+
+    kubectl exec -i $pod -- /bin/bash -c 'cat > ~/.ssh/config' < $tmpdir/config
+    kubectl exec -i $pod -- /bin/bash -c 'cat > ~/.ssh/kserver' < $tmpdir/kserver
+    kubectl exec -i $pod -- /bin/bash -c 'cat > ~/.ssh/kserver.pub' < $tmpdir/kserver.pub
+    kubectl exec -i $pod -- /bin/bash -c 'chmod 600 ~/.ssh/*'
+
+    say "Use the contents of $tmpdir/kserver.pub on any host that \
+the Ketrew server should be able to talk to"
+
+}
+
 status() {
     ensure_kubectl
     ensure_prefix_set
@@ -85,6 +114,7 @@ take_down(){
 
 case "$1" in
     "up" ) create_ketrew_container ;;
+    "configure" ) add_ssh_config ;;
     "status" ) status ;;
     "down" ) take_down ;;
     * )
