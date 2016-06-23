@@ -69,11 +69,11 @@ status() {
         say "External IP address is not ready; try again a bit later :)"
     else
         say "Ketrew should be at: $(cat /tmp/$PREFIX-url)"
+        local cmd="ketrew init --conf /tmp/ketrewdocker/ --just-client $(cat /tmp/$PREFIX-url)"
+        printf "Ketrew Client Configuration:\n"
+        $cmd || printf "Cannot create Ketrew config but maybe you can? Use:\n   $cmd\nand "
+        printf "see /tmp/ketrewdocker/configuration.ml\n"
     fi
-    local cmd="ketrew init --conf /tmp/ketrewdocker/ --just-client $(cat /tmp/$PREFIX-url)"
-    printf "Ketrew Client Configuration:\n"
-    $cmd || printf "Cannot create Ketrew config but maybe you can? Use:\n   $cmd\nand "
-    printf "see /tmp/ketrewdocker/configuration.ml\n"
 
 }
 
