@@ -1233,7 +1233,7 @@ module Cluster = struct
       in
       begin match how with
       | `On_login_node ->
-        Configuration.gcloud_run_program configuration p
+        daemonize ~host p
       | `Submit_to_pbs ->
         let processors =
           List.find_map requirements
