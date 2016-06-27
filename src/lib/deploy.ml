@@ -38,6 +38,7 @@ end
 module Configuration = struct
   type t = {
     gcloud_host: string [@default "/tmp/local-strato-kt"];
+    gcloud_daemonization_method: [ `Nohup_setsid | `Python_daemon ] [@default `Python_daemon];
     compute_machine_type: string [@default "g1-small"];
     get_ketrew: [`Build | `Download_binary of string] [@default `Build];
     ketrew_auth_token: string;
@@ -45,7 +46,13 @@ module Configuration = struct
     ketrew_port: int [@default 4242];
     ketrew_configuration_path: string [@default "/tmp/ketrew-config"];
   } [@@deriving yojson, show, make]
+
   let gcloud_host t = Ketrew.EDSL.Host.parse t.gcloud_host
+
+  let gcloud_run_program t p =
+    let using = t.gcloud_daemonization_method in
+    Ketrew.EDSL.daemonize ~host:(gcloud_host t) ~using p
+
   let compute_machine_type t =
     t.compute_machine_type
 
@@ -118,11 +125,10 @@ module Node = struct
 
   let destroy t ~configuration =
     let open Ketrew.EDSL in
-    let host = Configuration.gcloud_host configuration in
     workflow_node without_product
       ~name:(sprintf "Destroy %s" t.name)
       ~make:(
-        daemonize ~host ~using:`Python_daemon Program.(
+        Configuration.gcloud_run_program configuration Program.(
             shf "gcloud compute instances delete %s --zone %s --quiet"
               t.name t.zone
           )
@@ -170,7 +176,7 @@ module Node = struct
     let wait_until_really_up =
       Shell_commands.wait_until_ok (gcloud_run_command t "uname -a") in
     let make =
-      daemonize ~host ~using:`Python_daemon Program.(
+      Configuration.gcloud_run_program configuration Program.(
           shf "gcloud compute instances create %s \
                %s \
                --zone %s \
@@ -239,11 +245,10 @@ module Node = struct
       | `Xenial ->
         sprintf "echo yes | aptdcon --install %s" (Filename.quote p)
     in
-    let host = Configuration.gcloud_host configuration in
     workflow_node without_product
       ~name:(sprintf "Install %s on %s" packages t.name)
       ~make:(
-        daemonize ~host ~using:`Python_daemon Program.(
+        Configuration.gcloud_run_program configuration Program.(
             sh (install_packages t packages |> sudo |> gcloud_run_command t)
           )
       )
@@ -306,7 +311,7 @@ module Nfs = struct
         sprintf "Mount %s on %s" (show nfs) (Node.show on) in
       let host = Configuration.gcloud_host configuration in
       let make =
-        daemonize ~host ~using:`Python_daemon Program.(
+        Configuration.gcloud_run_program configuration Program.(
             Node.chain_gcloud ~sudo:true ~on [
               sprintf "mkdir -p %s" nfs.mount_point;
               mount_command nfs;
@@ -329,9 +334,8 @@ module Nfs = struct
 
     let clean_up_access_rights t ~configuration =
       let open Ketrew.EDSL in
-      let host = Configuration.gcloud_host configuration in
       let make =
-        daemonize ~host ~using:`Python_daemon Program.(
+        Configuration.gcloud_run_program configuration Program.(
             Node.chain_gcloud ~sudo:true ~on:t.server [
               sprintf "chmod -R 777 %s" t.remote_path;
             ]
@@ -412,7 +416,7 @@ module Nfs = struct
       let open Ketrew.EDSL in
       let host = Configuration.gcloud_host configuration in
       let make =
-        daemonize ~host ~using:`Python_daemon Program.(
+        Configuration.gcloud_run_program configuration Program.(
             chain [
               shf "rm -fr %s" (script_dir ~configuration);
               shf "mkdir -p %s" (script_dir ~configuration);
@@ -464,7 +468,7 @@ module Nfs = struct
           (sprintf "ls -l %s" (storage_path t)) in
       let script = ensure_script ~configuration in
       let make =
-        daemonize ~host ~using:`Python_daemon Program.(
+        Configuration.gcloud_run_program configuration Program.(
             chain [
               sh set_GPROJECT;
               shf "%s create %s"
@@ -489,7 +493,7 @@ module Nfs = struct
       let open Ketrew.EDSL in
       let host = Configuration.gcloud_host configuration in
       let make =
-        daemonize ~host ~using:`Python_daemon Program.(
+        Configuration.gcloud_run_program configuration Program.(
             match t.witness with
             | `Existing _ -> chain []
             | `Create path ->
@@ -517,10 +521,9 @@ module Nfs = struct
        --server-name <server-name> *)
     let destroy t ~configuration =
       let open Ketrew.EDSL in
-      let host = Configuration.gcloud_host configuration in
       let script = ensure_script ~configuration in
       let make =
-        daemonize ~host ~using:`Python_daemon Program.(
+        Configuration.gcloud_run_program configuration Program.(
             chain [
               sh set_GPROJECT;
               shf "%s destroy %s"
@@ -577,7 +580,7 @@ module Torque = struct
     let host = Configuration.gcloud_host configuration in
     let make =
       let server = on.Node.name in
-      daemonize ~host ~using:`Python_daemon Program.(
+      Configuration.gcloud_run_program configuration Program.(
           chain (
             List.map ~f:(fun c -> Node.sudo c |> Node.gcloud_run_command on |> sh) [
               "/etc/init.d/torque-mom stop";
@@ -636,7 +639,7 @@ module Torque = struct
     let name = sprintf "Setup Torque client on %s" (Node.show on) in
     let host = Configuration.gcloud_host configuration in
     let make =
-      daemonize ~host ~using:`Python_daemon Program.(
+      Configuration.gcloud_run_program configuration Program.(
           chain (
             List.map ~f:(fun c -> Node.sudo c |> Node.gcloud_run_command on |> sh) [
               sprintf "/etc/init.d/torque-mom stop";
@@ -682,7 +685,7 @@ module Ketrew_server = struct
     let name = sprintf "Ensure Ketrew on %s" (Node.show on) in
     let host = Configuration.gcloud_host configuration in
     let make =
-      daemonize ~host ~using:`Python_daemon Program.(
+      Configuration.gcloud_run_program configuration Program.(
           begin match Configuration.get_ketrew configuration with
             | `Build ->
               Node.chain_gcloud ~sudo:false ~on [
@@ -746,7 +749,7 @@ module Ketrew_server = struct
         method key = key
       end in
     let make =
-      daemonize ~host ~using:`Python_daemon Program.(
+      Configuration.gcloud_run_program configuration Program.(
           Node.chain_gcloud ~sudo:false ~on [
             sprintf "mkdir -p %s"
               (Configuration.ketrew_configuration_path configuration);
@@ -798,7 +801,7 @@ module Ketrew_server = struct
       Configuration.ketrew_configuration_path configuration // "start.sh" in
     let tls = cert_key ~on ~configuration in
     let make =
-      daemonize ~host ~using:`Python_daemon Program.(
+      Configuration.gcloud_run_program configuration Program.(
           Node.chain_gcloud ~sudo:false ~on [
             sprintf "mkdir -p %s"
               (Configuration.ketrew_configuration_path configuration);
@@ -864,7 +867,8 @@ module Firewall_rule = struct
     in
     let name = sprintf "Setup Firewall rule %s" t.name in
     let host = Configuration.gcloud_host configuration in
-    let make = daemonize ~host ~using:`Python_daemon Program.(sh cmd) in
+    let make =
+      Configuration.gcloud_run_program configuration Program.(sh cmd) in
     let condition =
       Condition.program ~returns:0 ~host Program.(
           shf "gcloud compute firewall-rules describe %s" t.name
@@ -880,7 +884,8 @@ module Firewall_rule = struct
       sprintf "gcloud compute firewall-rules delete %s" t.name in
     let name = sprintf "Destroy Firewall rule %s" t.name in
     let host = Configuration.gcloud_host configuration in
-    let make = daemonize ~host ~using:`Python_daemon Program.(sh cmd) in
+    let make =
+      Configuration.gcloud_run_program configuration Program.(sh cmd) in
     let condition =
       Condition.program ~returns:1 ~host Program.(
           shf "gcloud compute firewall-rules describe %s" t.name
@@ -904,7 +909,7 @@ module User = struct
     let name = sprintf "Create user %s (%d)" t.username t.unix_uid in
     let host = Configuration.gcloud_host configuration in
     let make =
-      daemonize ~host ~using:`Python_daemon Program.(
+      Configuration.gcloud_run_program configuration Program.(
           Node.chain_gcloud ~sudo:true ~on [
             sprintf "adduser %s --uid %d --disabled-password"
               t.username t.unix_uid
@@ -933,7 +938,7 @@ module User = struct
         t.username t.unix_uid (Node.show on) in
     let host = Configuration.gcloud_host configuration in
     let make =
-      daemonize ~host ~using:`Python_daemon Program.(
+      Configuration.gcloud_run_program configuration Program.(
           Node.chain_gcloud ~sudo:true ~on [
             (* The `mkdir` and the `chown` assume that there is only one
                level of directories from `$HOME`: `/.ssh/` *)
@@ -965,14 +970,13 @@ module User = struct
   let setup_ssh_key t ~from ~on ~configuration =
     let the_key = generate_ssh_key t ~on:from ~configuration in
     let open Ketrew.EDSL in
-    let host = Configuration.gcloud_host configuration in
     (* cf. Node.get_gcloud_node_ssh_key *)
     let name =
       sprintf "Setup %s's SSH Keys on %s (from %s)"
         t.username (Node.show on) (Node.show from)
     in
     let make =
-      daemonize ~host ~using:`Python_daemon Program.(
+      Configuration.gcloud_run_program configuration Program.(
           (* begin match Node.equal from on with
           | false -> *)
             let tmp_dir =
@@ -1229,7 +1233,7 @@ module Cluster = struct
       in
       begin match how with
       | `On_login_node ->
-        daemonize ~using:`Python_daemon ~host p
+        daemonize ~host p
       | `Submit_to_pbs ->
         let processors =
           List.find_map requirements
