@@ -41,7 +41,7 @@ module Configuration = struct
     gcloud_daemonization_method: [ `Nohup_setsid | `Python_daemon ] [@default `Python_daemon];
     compute_machine_type: string [@default "g1-small"];
     get_ketrew: [`Build | `Download_binary of string] [@default `Build];
-    ketrew_auth_token: string;
+    ketrew_auth_token: string option;
     ketrew_screen_session: string [@default "ketrew-server"];
     ketrew_port: int [@default 4242];
     ketrew_configuration_path: string [@default "/tmp/ketrew-config"];
@@ -74,7 +74,9 @@ module Configuration = struct
 
   let get_ketrew t = t.get_ketrew
 
-  let ketrew_auth_token t = t.ketrew_auth_token
+  let ketrew_auth_token t =
+    t.ketrew_auth_token
+    |> Option.value_exn ~msg:"No Ketrew Auth Token configured"
   let ketrew_screen_session t = t.ketrew_screen_session
   let ketrew_port t = t.ketrew_port
   let ketrew_configuration_path t = t.ketrew_configuration_path
