@@ -3,7 +3,9 @@ set -e
 
 usage(){
     echo "Usage:"
-    echo "    PREFIX=some-name TOKEN=sooper-sequre sh $0 {up,status,down}"
+    echo "    PREFIX=some-name TOKEN=sooper-sequre sh $0 {up,status,configure,down}"
+    echo ""
+    echo "Optionally SSH_CONFIG_DIR can be used to choose the output path of the SSH configuration/keys"
 }
 
 say() {
@@ -61,6 +63,13 @@ add_ssh_config(){
     ensure_prefix_set
 
     local tmpdir=/tmp/$PREFIX-sshconfig/
+    if [ "$SSH_CONFIG_DIR" != "" ] ; then
+        tmpdir=$SSH_CONFIG_DIR
+    fi
+
+    local write_ssh_pub_key=$1
+
+
     mkdir -p $tmpdir
 
     if [ -f $tmpdir/kserver.pub ] ; then
@@ -82,6 +91,12 @@ add_ssh_config(){
 
     say "Use the contents of $tmpdir/kserver.pub on any host that \
 the Ketrew server should be able to talk to"
+
+    if [ "$write_ssh_pub_key" = "write-pub-key" ]; then
+        local dest=$HOME/.ssh/authorized_keys
+        say "Writing to $dest"
+        cat $tmpdir/kserver.pub >> $dest
+    fi
 
 }
 
@@ -106,7 +121,10 @@ status() {
 
 }
 
-take_down(){
+take_down() {
+
+    ensure_kubectl
+    ensure_prefix_set
     kubectl delete service  $PREFIX-service || say "Service deletion FAILED!"
     kubectl delete deployment  $PREFIX-service || say "Deployment deletion FAILED!"
     gcloud container clusters delete -q $PREFIX-cluster  || say "Cluster deletion FAILED!"
@@ -115,6 +133,7 @@ take_down(){
 case "$1" in
     "up" ) create_ketrew_container ;;
     "configure" ) add_ssh_config ;;
+    "configure+local" ) add_ssh_config write-pub-key ;;
     "status" ) status ;;
     "down" ) take_down ;;
     * )
