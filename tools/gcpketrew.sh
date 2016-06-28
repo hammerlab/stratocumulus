@@ -66,6 +66,10 @@ add_ssh_config(){
     if [ "$SSH_CONFIG_DIR" != "" ] ; then
         tmpdir=$SSH_CONFIG_DIR
     fi
+
+    local write_ssh_pub_key=$1
+
+
     mkdir -p $tmpdir
 
     if [ -f $tmpdir/kserver.pub ] ; then
@@ -87,6 +91,12 @@ add_ssh_config(){
 
     say "Use the contents of $tmpdir/kserver.pub on any host that \
 the Ketrew server should be able to talk to"
+
+    if [ "$write_ssh_pub_key" = "write-pub-key" ]; then
+        local dest=$HOME/.ssh/authorized_keys
+        say "Writing to $dest"
+        cat $tmpdir/kserver.pub >> $dest
+    fi
 
 }
 
@@ -123,6 +133,7 @@ take_down() {
 case "$1" in
     "up" ) create_ketrew_container ;;
     "configure" ) add_ssh_config ;;
+    "configure+local" ) add_ssh_config write-pub-key ;;
     "status" ) status ;;
     "down" ) take_down ;;
     * )
