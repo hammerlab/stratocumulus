@@ -41,7 +41,7 @@ module Configuration = struct
     gcloud_daemonization_method: [ `Nohup_setsid | `Python_daemon ] [@default `Python_daemon];
     compute_machine_type: string [@default "g1-small"];
     get_ketrew: [`Build | `Download_binary of string] [@default `Build];
-    ketrew_auth_token: string;
+    ketrew_auth_token: string option;
     ketrew_screen_session: string [@default "ketrew-server"];
     ketrew_port: int [@default 4242];
     ketrew_configuration_path: string [@default "/tmp/ketrew-config"];
@@ -74,7 +74,9 @@ module Configuration = struct
 
   let get_ketrew t = t.get_ketrew
 
-  let ketrew_auth_token t = t.ketrew_auth_token
+  let ketrew_auth_token t =
+    t.ketrew_auth_token
+    |> Option.value_exn ~msg:"No Ketrew Auth Token configured"
   let ketrew_screen_session t = t.ketrew_screen_session
   let ketrew_port t = t.ketrew_port
   let ketrew_configuration_path t = t.ketrew_configuration_path
@@ -1044,16 +1046,23 @@ module Cluster = struct
     compute_nodes: Node.t list;
     nfs_mounts: Nfs.Mount.t list;
     torque_server: Node.t;
-    ketrew_server: Node.t;
+    ketrew_server: Node.t option;
     users: User.t list [@default []];
   } [@@deriving yojson, show, make]
 
   let open_ketrew_port t ~configuration =
-    Firewall_rule.make (sprintf "cluster-%s-ketrew-port" t.name)
-      ~policy:(`Allow_tcp (Configuration.ketrew_port configuration,
-                           `To [t.ketrew_server.Node.name]))
+    Option.map t.ketrew_server ~f:(fun node ->
+        Firewall_rule.make (sprintf "cluster-%s-ketrew-port" t.name)
+          ~policy:(`Allow_tcp (Configuration.ketrew_port configuration,
+                               `To [node.Node.name]))
+      )
 
-  let all_nodes t = t.ketrew_server :: t.torque_server :: t.compute_nodes
+  let opt_map_to_list o ~f =
+    Option.value_map ~f:(fun e -> [f e]) o ~default:[]
+
+  let all_nodes t =
+    opt_map_to_list ~f:(fun e -> e) t.ketrew_server
+    @ (t.torque_server :: t.compute_nodes)
 
   let ketrew_host ?work_dir t =
     ksprintf Ketrew.EDSL.Host.parse
@@ -1072,17 +1081,18 @@ module Cluster = struct
   let up t ~configuration =
     let open Ketrew.EDSL in
     let edges =
-      [
-        depends_on (Firewall_rule.ensure
-                      (open_ketrew_port t ~configuration) ~configuration);
+      (open_ketrew_port t ~configuration
+       |> opt_map_to_list ~f:(fun rule ->
+           depends_on (Firewall_rule.ensure rule ~configuration)))
+      @ (opt_map_to_list t.ketrew_server ~f:(fun node ->
+          depends_on (
+            Ketrew_server.setup
+              ?run_as:(List.hd t.users
+                       |> Option.map ~f:(fun u -> u.User.username))
+              ~on:node ~configuration () )))
+      @ [
         depends_on (
           Torque.setup_server ~on:t.torque_server ~configuration;
-        );
-        depends_on (
-          Ketrew_server.setup
-            ?run_as:(List.hd t.users
-                     |> Option.map ~f:(fun u -> u.User.username))
-            ~on:t.ketrew_server ~configuration ();
         );
       ]
       @ List.map t.nfs_mounts ~f:(fun mount ->
@@ -1096,10 +1106,10 @@ module Cluster = struct
           @ List.map t.nfs_mounts ~f:(fun mount ->
               depends_on (Nfs.Mount.ensure mount ~on ~configuration))
           @ List.concat_map t.users ~f:(fun user ->
-              [
+              opt_map_to_list t.ketrew_server ~f:(fun from ->
+                  depends_on (User.setup_ssh_key user ~on ~from ~configuration))
+              @ [
                 depends_on (User.add user ~on ~configuration);
-                depends_on (User.setup_ssh_key user ~on
-                              ~from:t.ketrew_server ~configuration);
               ])
         )
       @ List.map t.compute_nodes ~f:(fun on ->
@@ -1113,12 +1123,12 @@ module Cluster = struct
   let down t ~configuration =
     let open Ketrew.EDSL in
     let nodes_to_destroy =
-      t.ketrew_server :: t.torque_server :: t.compute_nodes in
+      opt_map_to_list t.ketrew_server ~f:(fun e -> e)
+      @ t.torque_server :: t.compute_nodes in
     let edges =
-      depends_on (Firewall_rule.remove
-                    (open_ketrew_port t ~configuration) ~configuration)
-      ::
-      List.map nodes_to_destroy ~f:(fun node ->
+      opt_map_to_list (open_ketrew_port t ~configuration) ~f:(fun rule ->
+          depends_on (Firewall_rule.remove ~configuration rule))
+      @ List.map nodes_to_destroy ~f:(fun node ->
           depends_on (Node.destroy node ~configuration)
         )
     in
@@ -1127,13 +1137,14 @@ module Cluster = struct
       ~edges
 
   let ketrew_info t ~configuration =
+    let server =
+      Option.value_exn t.ketrew_server ~msg:"No Ketrew server configured" in
     let open Pvem_lwt_unix.Deferred_result in
     let host = Configuration.gcloud_host configuration in
     let host_io = Ketrew.Host_io.create () in
     ksprintf (fun s -> Ketrew.Host_io.get_shell_command_output host_io ~host s)
       "gcloud compute instances describe %s --zone %s --format json"
-      t.ketrew_server.Node.name
-      t.ketrew_server.Node.zone
+      server.Node.name server.Node.zone
     >>= fun (stdout, stderr) ->
     let json = Yojson.Safe.from_string stdout in
     let in_assoc json f =
