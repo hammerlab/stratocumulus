@@ -3,7 +3,7 @@ set -e
 
 usage(){
     echo "Usage:"
-    echo "    PREFIX=some-name TOKEN=sooper-sequre sh $0 {up,status,down}"
+    echo "    PREFIX=some-name TOKEN=sooper-sequre sh $0 {up,status,configure,down}"
 }
 
 say() {
@@ -106,7 +106,10 @@ status() {
 
 }
 
-take_down(){
+take_down() {
+
+    ensure_kubectl
+    ensure_prefix_set
     kubectl delete service  $PREFIX-service || say "Service deletion FAILED!"
     kubectl delete deployment  $PREFIX-service || say "Deployment deletion FAILED!"
     gcloud container clusters delete -q $PREFIX-cluster  || say "Cluster deletion FAILED!"
