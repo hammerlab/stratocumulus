@@ -4,6 +4,8 @@ set -e
 usage(){
     echo "Usage:"
     echo "    PREFIX=some-name TOKEN=sooper-sequre sh $0 {up,status,configure,down}"
+    echo ""
+    echo "Optionally SSH_CONFIG_DIR can be used to choose the output path of the SSH configuration/keys"
 }
 
 say() {
@@ -61,6 +63,9 @@ add_ssh_config(){
     ensure_prefix_set
 
     local tmpdir=/tmp/$PREFIX-sshconfig/
+    if [ "$SSH_CONFIG_DIR" != "" ] ; then
+        tmpdir=$SSH_CONFIG_DIR
+    fi
     mkdir -p $tmpdir
 
     if [ -f $tmpdir/kserver.pub ] ; then
