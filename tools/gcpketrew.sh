@@ -58,6 +58,14 @@ create_ketrew_container() {
        --port=443 --target-port=$PORT --type=LoadBalancer
 }
 
+run_command_on_pod () {
+    ensure_kubectl
+    ensure_prefix_set
+    local pod=$(kubectl get pods | grep "$PREFIX" | awk '{print $1}')
+    say "Guessed POD name: $pod"
+    kubectl exec -i $pod -- /bin/bash -c "$1"
+}
+
 add_ssh_config(){
     ensure_kubectl
     ensure_prefix_set
@@ -137,6 +145,7 @@ case "$1" in
     "configure+local" ) add_ssh_config write-pub-key ;;
     "status" ) status ;;
     "down" ) take_down ;;
+    "exec" ) run_command_on_pod "$2" ;;
     * )
     say "Cannnot understand command '$1'"
     usage ;;
