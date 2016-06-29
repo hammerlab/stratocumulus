@@ -1037,6 +1037,38 @@ module User = struct
         depends_on the_key;
       ]
 
+
+  let authorize_key t ~on ~configuration ~key =
+    let open Ketrew.EDSL in
+    (* cf. Node.get_gcloud_node_ssh_key *)
+    let key =
+      match key with
+      | `Inline line -> line
+    in
+    let name =
+      sprintf "Authorize %s for %s on %s"
+        (List.nth (String.split ~on:(`Character ' ') key) 2
+         |> Option.value ~default:"inline SSH key")
+        t.username (Node.show on)
+    in
+    let make =
+      Configuration.gcloud_run_program configuration Program.(
+          (* shf "gcloud compute copy-files --zone %s %s %s:/tmp/"
+            on.Node.zone key_path on.Node.name *)
+          Node.chain_gcloud ~sudo:true ~on [
+            sprintf "mkdir -p ~%s/.ssh" t.username;
+            sprintf "chown -R %s ~%s/" t.username t.username;
+            sprintf "echo %s >> ~%s/.ssh/authorized_keys"
+              (Filename.quote key)
+              t.username;
+            sprintf "chmod -R 700 ~%s/.ssh/" t.username;
+          ]) in
+    workflow_node without_product
+      ~name ~make
+      ~edges:[
+        depends_on (Node.create_instance on ~configuration);
+      ]
+
 end
 
 module Cluster = struct
@@ -1048,6 +1080,7 @@ module Cluster = struct
     torque_server: Node.t;
     ketrew_server: Node.t option;
     users: User.t list [@default []];
+    authorize_keys: [ `Inline of string ] list [@default []];
   } [@@deriving yojson, show, make]
 
   let open_ketrew_port t ~configuration =
@@ -1081,6 +1114,12 @@ module Cluster = struct
   let up t ~configuration =
     let open Ketrew.EDSL in
     let edges =
+      (List.concat_map t.authorize_keys ~f:(fun key ->
+           List.map t.users ~f:(fun user ->
+               depends_on (
+                 User.authorize_key user ~key ~configuration ~on:t.torque_server
+               ))))
+      @
       (open_ketrew_port t ~configuration
        |> opt_map_to_list ~f:(fun rule ->
            depends_on (Firewall_rule.ensure rule ~configuration)))
