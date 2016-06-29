@@ -58,6 +58,14 @@ create_ketrew_container() {
        --port=443 --target-port=$PORT --type=LoadBalancer
 }
 
+run_command_on_pod () {
+    ensure_kubectl
+    ensure_prefix_set
+    local pod=$(kubectl get pods | grep "$PREFIX" | awk '{print $1}')
+    say "Guessed POD name: $pod"
+    kubectl exec -i $pod -- /bin/bash -c "$1"
+}
+
 add_ssh_config(){
     ensure_kubectl
     ensure_prefix_set
@@ -105,6 +113,10 @@ status() {
     ensure_prefix_set
     ensure_token_set
     kubectl get service $PREFIX-service > /tmp/$PREFIX-status
+    local ketrew_url=/tmp/$PREFIX-client-url
+    if [ "$KETREW_URL" != "" ] ; then
+        ketrew_url=$KETREW_URL
+    fi
     say "Status:"
     cat /tmp/$PREFIX-status
     cat /tmp/$PREFIX-status | awk " /^$PREFIX/ {print \"https://\"\$3\"/gui?token=$TOKEN\"}" > /tmp/$PREFIX-url
@@ -112,11 +124,8 @@ status() {
     then
         say "External IP address is not ready; try again a bit later :)"
     else
-        say "Ketrew should be at: $(cat /tmp/$PREFIX-url)"
-        local cmd="ketrew init --conf /tmp/ketrewdocker/ --just-client $(cat /tmp/$PREFIX-url)"
-        printf "Ketrew Client Configuration:\n"
-        $cmd || printf "Cannot create Ketrew config but maybe you can? Use:\n   $cmd\nand "
-        printf "see /tmp/ketrewdocker/configuration.ml\n"
+        cp /tmp/$PREFIX-url $ketrew_url
+        say "Ketrew should be at: $(cat /tmp/$PREFIX-url)\nURL also in $ketrew_url"
     fi
 
 }
@@ -136,6 +145,7 @@ case "$1" in
     "configure+local" ) add_ssh_config write-pub-key ;;
     "status" ) status ;;
     "down" ) take_down ;;
+    "exec" ) run_command_on_pod "$2" ;;
     * )
     say "Cannnot understand command '$1'"
     usage ;;
