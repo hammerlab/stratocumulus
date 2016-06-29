@@ -105,6 +105,10 @@ status() {
     ensure_prefix_set
     ensure_token_set
     kubectl get service $PREFIX-service > /tmp/$PREFIX-status
+    local ketrew_url=/tmp/$PREFIX-client-url
+    if [ "$KETREW_URL" != "" ] ; then
+        ketrew_url=$KETREW_URL
+    fi
     say "Status:"
     cat /tmp/$PREFIX-status
     cat /tmp/$PREFIX-status | awk " /^$PREFIX/ {print \"https://\"\$3\"/gui?token=$TOKEN\"}" > /tmp/$PREFIX-url
@@ -112,11 +116,8 @@ status() {
     then
         say "External IP address is not ready; try again a bit later :)"
     else
-        say "Ketrew should be at: $(cat /tmp/$PREFIX-url)"
-        local cmd="ketrew init --conf /tmp/ketrewdocker/ --just-client $(cat /tmp/$PREFIX-url)"
-        printf "Ketrew Client Configuration:\n"
-        $cmd || printf "Cannot create Ketrew config but maybe you can? Use:\n   $cmd\nand "
-        printf "see /tmp/ketrewdocker/configuration.ml\n"
+        cp /tmp/$PREFIX-url $ketrew_url
+        say "Ketrew should be at: $(cat /tmp/$PREFIX-url)\nURL also in $ketrew_url"
     fi
 
 }
