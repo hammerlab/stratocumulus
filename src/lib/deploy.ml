@@ -595,12 +595,9 @@ module Torque = struct
               sprintf "echo %s > /var/spool/torque/server_priv/acl_svr/acl_hosts" server;
               sprintf "echo root@%s > /var/spool/torque/server_priv/acl_svr/operators" server;
               sprintf "echo root@%s > /var/spool/torque/server_priv/acl_svr/managers" server;
-              sprintf "echo \"%s np=1\" > /var/spool/torque/server_priv/nodes" server;
-              sprintf "echo %s > /var/spool/torque/mom_priv/config" server;
               (* Now start the real one *)
               sprintf "/etc/init.d/torque-server start";
               sprintf "/etc/init.d/torque-scheduler start";
-              sprintf "/etc/init.d/torque-mom start";
               (* Set scheduling properties *)
               sprintf "qmgr -c 'set server scheduling = true'";
 
@@ -1404,7 +1401,8 @@ let command_line
                 deployment.Deployment.name command in
             match todo with
             | `Submit ->
-              Ketrew.Client.submit_workflow wf;
+              Ketrew.Client.submit_workflow
+                ~add_tags:["stratocumulus"; deployment.Deployment.name] wf;
               Say.(
                 sentence (sprintf "%ssubmitted as %s" prefix
                             Ketrew.EDSL.(node_id wf))
