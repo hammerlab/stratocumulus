@@ -237,7 +237,7 @@ module Node = struct
             | `Torque_client -> "torque-client torque-mom"
             | `Opam -> "opam m4 pkg-config libgmp-dev"
             | `Sqlite -> "libsqlite3-dev"
-            | `Biokepi_dependencies -> "cmake r-base"
+            | `Biokepi_dependencies -> "cmake r-base tcsh"
             | `Libev -> "libev-dev"
         )
       |> String.concat ~sep:" "
