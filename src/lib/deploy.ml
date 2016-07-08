@@ -8,10 +8,10 @@ module Shell_commands = struct
 
   let wait_until_ok ?(attempts = 10) ?(sleep = 10) cmd =
     (* Hackish way of waiting for an SSH server to be ready: *)
-    sprintf "for count in $(seq 1 %d); do\n\
-             sleep %d\n\
-             echo \"Attempt $count\"\n\
-             %s && break ||  echo 'Attempt FAILED'\n\
+    sprintf "for count in $(seq 1 %d); do \
+             sleep %d; \
+             echo \"Attempt $count\"; \
+             %s && break ||  echo 'Attempt FAILED'; \
              done"
       attempts sleep cmd
 end
@@ -649,13 +649,9 @@ module Torque = struct
           && chain (
             List.map ~f:(fun c -> Node.sudo c |> Node.gcloud_run_command server |> sh) [
               sprintf "qmgr -c 'create node %s'" on.Node.name;
-              sprintf "for count in $(seq 1 10); do\n\
-                       sleep 10\n\
-                       echo \"Attempt at verifying condition: $count\"\n\
-                       %s && break ||  echo 'Attempt FAILED'\n\
-                       done"
+              Shell_commands.wait_until_ok
                 (test_qnode_condition ~server on
-                 |> Ketrew_pure.Program.to_single_shell_command)
+                 |> Ketrew_pure.Program.to_single_shell_command);
             ]
           )
 
