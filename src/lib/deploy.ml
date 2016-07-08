@@ -897,6 +897,8 @@ module User = struct
     unix_uid: int;
   } [@@deriving yojson, show, make]
 
+  let home t = "/home" // t.username
+
   let add t ~on ~configuration =
     (* useradd or adduser?
        https://help.ubuntu.com/community/AddUsersHowto *)
@@ -906,8 +908,8 @@ module User = struct
     let make =
       Configuration.gcloud_run_program configuration Program.(
           Node.chain_gcloud ~sudo:true ~on [
-            sprintf "adduser %s --uid %d --disabled-password"
-              t.username t.unix_uid
+            sprintf "adduser %s --uid %d --disabled-password --home %s"
+              t.username t.unix_uid (home t)
           ]) in
     let condition =
       Condition.program ~returns:0 ~host Program.(
@@ -924,6 +926,7 @@ module User = struct
 
   let ssh_key_path t =
     sprintf "/stratocumulus-ssh-keys/stratokey_%s_%d" t.username t.unix_uid
+
 
   let generate_ssh_key t ~on ~configuration =
     (* passwordless keys *)
@@ -977,9 +980,9 @@ module User = struct
             let tmp_dir =
               sprintf "/tmp/keys-of-%s-to-%s" from.Node.name on.Node.name in
             Node.chain_gcloud ~sudo:true ~on [
-              sprintf "rm -fr ~%s/.ssh/" t.username;
-              sprintf "mkdir -p ~%s/.ssh/" t.username;
-              sprintf "chmod -R 777 ~%s/.ssh/" t.username;
+              sprintf "rm -fr %s/.ssh/" (home t);
+              sprintf "mkdir -p %s/.ssh/" (home t);
+              sprintf "chmod -R 777 %s/.ssh/" (home t);
             ]
             (* && Node.chain_gcloud ~sudo:true ~on:from [
               sprintf "chmod -R 777 ~%s/.ssh/" t.username;
@@ -1001,25 +1004,25 @@ module User = struct
                 on.Node.name t.username;
             ]
             && Node.chain_gcloud ~sudo:true ~on [
-              sprintf "chmod -R 700 ~%s/.ssh/" t.username;
+              sprintf "chmod -R 700 %s/.ssh/" (home t);
             ]
           (* | true ->
             sh "echo No-SSH-key-copy-needed"
           end *)
           && Node.chain_gcloud ~sudo:true ~on [
-            sprintf "echo 'IdentityFile ~%s/.ssh/%s' \
-                     >> ~%s/.ssh/config"
-              t.username
+            sprintf "echo 'IdentityFile %s/.ssh/%s' \
+                     >> %s/.ssh/config"
+              (home t)
               (Filename.basename the_key#product#key)
-              t.username;
+              (home t);
             sprintf "echo 'StrictHostKeyChecking no' \
-                     >> ~%s/.ssh/config" t.username;
-            sprintf "cat ~%s/.ssh/%s >> ~%s/.ssh/authorized_keys"
-              t.username
+                     >> %s/.ssh/config" (home t);
+            sprintf "cat %s/.ssh/%s >> %s/.ssh/authorized_keys"
+              (home t)
               (Filename.basename the_key#product#pub)
-              t.username;
-            sprintf "chown -R %s:%s ~%s/.ssh" t.username t.username t.username;
-            sprintf "chmod -R 700 ~%s/.ssh" t.username;
+              (home t);
+            sprintf "chown -R %s:%s %s/.ssh" t.username t.username (home t);
+            sprintf "chmod -R 700 %s/.ssh" (home t);
           ]
         )
     in
@@ -1049,12 +1052,12 @@ module User = struct
           (* shf "gcloud compute copy-files --zone %s %s %s:/tmp/"
             on.Node.zone key_path on.Node.name *)
           Node.chain_gcloud ~sudo:true ~on [
-            sprintf "mkdir -p ~%s/.ssh" t.username;
-            sprintf "chown -R %s ~%s/" t.username t.username;
-            sprintf "echo %s >> ~%s/.ssh/authorized_keys"
+            sprintf "mkdir -p %s/.ssh" (home t);
+            sprintf "chown -R %s:%s %s/" t.username t.username (home t);
+            sprintf "echo %s >> %s/.ssh/authorized_keys"
               (Filename.quote key)
-              t.username;
-            sprintf "chmod -R 700 ~%s/.ssh/" t.username;
+              (home t);
+            sprintf "chmod -R 700 %s/.ssh/" (home t);
           ]) in
     workflow_node without_product
       ~name ~make
