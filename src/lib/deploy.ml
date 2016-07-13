@@ -299,13 +299,13 @@ module Nfs = struct
     let ensure_server t ~configuration =
       let open Ketrew.EDSL in
       let host = Configuration.gcloud_host configuration in
-      let done_when =
+      let ensures =
         nfs_server_present_condition
           ~remote_path:t.remote_path ~witness:t.witness
           ~host ~server:t.server in
       workflow_node without_product
         ~name:(sprintf "Ensure NFS server %s is alive" (show t))
-        ~done_when
+        ~ensures
 
     let ensure nfs ~on ~configuration =
       let open Ketrew.EDSL in
@@ -326,7 +326,7 @@ module Nfs = struct
         depends_on (Node.create_instance on ~configuration)
       ] in
       workflow_node without_product
-        ~done_when:(`Is_verified (
+        ~ensures:(`Is_verified (
             Condition.(
               program ~returns:0 ~host Program.(
                   sprintf "test -f %s" (nfs.mount_point // nfs.witness)
@@ -488,7 +488,7 @@ module Nfs = struct
         Condition.program ~host ~returns:0 Program.(sh test_liveness) in
       let name = sprintf "Create NFS deployment: %s" t.name in
       workflow_node without_product ~name ~make
-        ~done_when:(`Is_verified condition)
+        ~ensures:(`Is_verified condition)
         ~edges:[ depends_on script ]
 
     let ensure_witness t ~configuration =
@@ -505,7 +505,7 @@ module Nfs = struct
               |> sh
           ) in
       let name = sprintf "Ensure witness file of NFS deployment: %s" t.name in
-      let done_when =
+      let ensures =
         nfs_server_present_condition
           ~remote_path:(storage_path t)
           ~witness:(witness_path t |> Filename.basename)
@@ -513,7 +513,7 @@ module Nfs = struct
       let edges = [
         create_deployment t ~configuration |> depends_on;
       ] in
-      workflow_node without_product ~name ~make ~edges ~done_when
+      workflow_node without_product ~name ~make ~edges ~ensures
 
     let ensure t ~configuration = ensure_witness t ~configuration
 
@@ -630,7 +630,7 @@ module Torque = struct
     ] in
     let condition = test_qsub_condition ~host ~on in
     workflow_node without_product
-      ~done_when:(`Is_verified condition)
+      ~ensures:(`Is_verified condition)
       ~name ~make ~edges
 
   let setup_client ~on ~configuration ~server =
@@ -666,7 +666,7 @@ module Torque = struct
     let condition =
       test_qnode_condition ~server on |> Condition.program ~host ~returns:0 in
     workflow_node without_product
-      ~done_when:(`Is_verified condition)
+      ~ensures:(`Is_verified condition)
       ~name ~make ~edges
 
 
@@ -720,7 +720,7 @@ module Ketrew_server = struct
           )
     in
     workflow_node without_product
-      ~done_when:(`Is_verified condition)
+      ~ensures:(`Is_verified condition)
       ~name ~make ~edges
 
   let cert_key ~on ~configuration =
@@ -835,7 +835,7 @@ module Ketrew_server = struct
         )
     in
     workflow_node without_product
-      ~done_when:(`Is_verified condition)
+      ~ensures:(`Is_verified condition)
       ~name ~make ~edges
 end
 
@@ -870,7 +870,7 @@ module Firewall_rule = struct
         )
     in
     workflow_node without_product
-      ~done_when:(`Is_verified condition)
+      ~ensures:(`Is_verified condition)
       ~name ~make
 
   let remove t ~configuration =
@@ -887,7 +887,7 @@ module Firewall_rule = struct
         )
     in
     workflow_node without_product
-      ~done_when:(`Is_verified condition) ~name ~make
+      ~ensures:(`Is_verified condition) ~name ~make
 
 end
 
@@ -919,7 +919,7 @@ module User = struct
         )
     in
     workflow_node without_product
-      ~done_when:(`Is_verified condition) ~name ~make
+      ~ensures:(`Is_verified condition) ~name ~make
       ~edges:[
         depends_on (Node.create_instance on ~configuration);
       ]
