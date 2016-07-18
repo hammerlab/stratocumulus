@@ -1063,6 +1063,7 @@ module User = struct
       ~name ~make
       ~edges:[
         depends_on (Node.create_instance on ~configuration);
+        depends_on (add t ~on ~configuration);
       ]
 
 end
