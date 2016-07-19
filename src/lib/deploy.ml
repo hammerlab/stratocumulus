@@ -371,7 +371,7 @@ module Nfs = struct
     let disk_name t =
       Option.value t.reuse_data_disk ~default:(t.name ^ "-pdisk")
 
-    let as_node t = Node.make (vm_name t)
+    let as_node t = Node.make (vm_name t) ~zone:t.zone
 
     let storage_path t =
       (* sprintf "/%s" (disk_name t) *)
