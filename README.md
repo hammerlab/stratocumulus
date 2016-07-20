@@ -54,12 +54,14 @@ export GATK_JAR_URL="http://example.com/path/to/GenomeAnalysisTK_35.jar"
 # (optional) make the 2nd test (NFS deployment) reuse an existing google disk:
 export REUSE_DATA_DISK=more-persistent-disk
 
+# (optional) ask for a Ketrewless cluster:
+export WITH_KETREW_SERVER=no
 ```
 
 Start the deployment workflow (a “deployer“ Ketrew server is assumed to be
 configured/running):
 
-    ./deployment-test up view
+    ./deployment-test up {view,submit}
 
 When the workflow is done and successful:
 
