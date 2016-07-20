@@ -1094,6 +1094,11 @@ module Cluster = struct
     opt_map_to_list ~f:(fun e -> e) t.ketrew_server
     @ (t.torque_server :: t.compute_nodes)
 
+  let ssh_key_master_node t =
+    match t.ketrew_server with
+    | Some k -> k
+    | None -> t.torque_server
+
   let ketrew_host ?work_dir t =
     ksprintf Ketrew.EDSL.Host.parse
       "ssh://%s%s/%s/ketrew-host-playground"
@@ -1142,9 +1147,11 @@ module Cluster = struct
           @ List.map t.nfs_mounts ~f:(fun mount ->
               depends_on (Nfs.Mount.ensure mount ~on ~configuration))
           @ List.concat_map t.users ~f:(fun user ->
-              opt_map_to_list t.ketrew_server ~f:(fun from ->
-                  depends_on (User.setup_ssh_key user ~on ~from ~configuration))
-              @ [
+              [
+                depends_on (
+                  let from = ssh_key_master_node t in
+                  User.setup_ssh_key user ~on ~from ~configuration
+                );
                 depends_on (User.add user ~on ~configuration);
               ])
         )

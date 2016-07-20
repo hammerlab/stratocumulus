@@ -3,10 +3,13 @@ Stratocumulus
 
 Deploy biggish cloud-based clusters.
 
-Run The Tests
--------------
+Some usage instructions and pre-configured scripts are available at
+[`hammerlab/stratotemplate`](https://github.com/hammerlab/stratotemplate).
 
-The main test is in two pieces, UX will improve over time:
+The Tests
+---------
+
+The main test is in two pieces:
 
 - `src/test/test_deployment.ml` → uses the `stratocumulus` library to define a
   cluster deployment.
@@ -51,12 +54,14 @@ export GATK_JAR_URL="http://example.com/path/to/GenomeAnalysisTK_35.jar"
 # (optional) make the 2nd test (NFS deployment) reuse an existing google disk:
 export REUSE_DATA_DISK=more-persistent-disk
 
+# (optional) ask for a Ketrewless cluster:
+export WITH_KETREW_SERVER=no
 ```
 
 Start the deployment workflow (a “deployer“ Ketrew server is assumed to be
 configured/running):
 
-    ./deployment-test up view
+    ./deployment-test up {view,submit}
 
 When the workflow is done and successful:
 

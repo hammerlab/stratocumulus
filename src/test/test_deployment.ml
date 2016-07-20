@@ -21,6 +21,15 @@ let prefix =
 
 let name s = sprintf "%s-%s" prefix s
 
+let ketrew_server =
+  try
+    if Sys.getenv "WITH_KETREW_SERVER" = "no"
+    then None
+    else Some (Node.make (name "ketrew-server")) 
+  with _ -> 
+    Some (Node.make (name "ketrew-server")) 
+
+
 let configuration =
   Configuration.make ()
     ~gcloud_host
@@ -52,7 +61,7 @@ let test_deployment =
         )
         ~nfs_mounts:[nfs_mount]
         ~torque_server:(compute_node (name "pbs-server"))
-        ~ketrew_server:(Node.make (name "ketrew-server"))
+        ?ketrew_server
         ~users:[
           User.make ~unix_uid:20420 (sprintf "%s-user" prefix);
         ]
