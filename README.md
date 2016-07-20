@@ -3,10 +3,13 @@ Stratocumulus
 
 Deploy biggish cloud-based clusters.
 
-Run The Tests
--------------
+Some usage instructions and pre-configured scripts are available at
+[`hammerlab/stratotemplate`](https://github.com/hammerlab/stratotemplate).
 
-The main test is in two pieces, UX will improve over time:
+The Tests
+---------
+
+The main test is in two pieces:
 
 - `src/test/test_deployment.ml` → uses the `stratocumulus` library to define a
   cluster deployment.
