@@ -48,6 +48,11 @@ ketrew_server_image() {
     say "Using $SAY_INFO Ketrew-dev-server image: $KETREW_IMAGE"
 }
 
+current_cluster_is_the_right_one() {
+    ensure_prefix_set
+    gcloud container clusters get-credentials $PREFIX-cluster
+}
+
 create_ketrew_container() {
     local PORT=8443
     ensure_kubectl
@@ -70,6 +75,7 @@ create_ketrew_container() {
 run_command_on_pod () {
     ensure_kubectl
     ensure_prefix_set
+    current_cluster_is_the_right_one
     local pod=$(kubectl get pods | grep "$PREFIX" | awk '{print $1}')
     say "Guessed POD name: $pod"
     kubectl exec -i $pod -- /bin/bash -c "$1"
@@ -78,6 +84,7 @@ run_command_on_pod () {
 add_ssh_config(){
     ensure_kubectl
     ensure_prefix_set
+    current_cluster_is_the_right_one
 
     local tmpdir=/tmp/$PREFIX-sshconfig/
     if [ "$SSH_CONFIG_DIR" != "" ] ; then
@@ -121,6 +128,8 @@ status() {
     ensure_kubectl
     ensure_prefix_set
     ensure_token_set
+    current_cluster_is_the_right_one
+
     kubectl get service $PREFIX-service > /tmp/$PREFIX-status
     local ketrew_url=/tmp/$PREFIX-client-url
     if [ "$KETREW_URL" != "" ] ; then
@@ -143,6 +152,8 @@ take_down() {
 
     ensure_kubectl
     ensure_prefix_set
+    current_cluster_is_the_right_one
+
     kubectl delete service  $PREFIX-service || say "Service deletion FAILED!"
     kubectl delete deployment  $PREFIX-service || say "Deployment deletion FAILED!"
     gcloud container clusters delete -q $PREFIX-cluster  || say "Cluster deletion FAILED!"
