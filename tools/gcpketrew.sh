@@ -166,6 +166,11 @@ case "$1" in
     "status" ) status ;;
     "down" ) take_down ;;
     "exec" ) run_command_on_pod "$2" ;;
+    "pubkey" ) run_command_on_pod "cat .ssh/kserver.pub" ;;
+    "logs" )
+        query="-M 10"
+        if [ "$2" != "" ]; then query="$2" ; fi
+        run_command_on_pod "eval \`opam config env\` ; ketrew logs $query" ;;
     * )
     say "Cannnot understand command '$1'"
     usage ;;
