@@ -1,13 +1,6 @@
 #!/bin/sh
 set -e
 
-usage(){
-    echo "Usage:"
-    echo "    PREFIX=some-name TOKEN=sooper-sequre sh $0 {up,status,configure,down}"
-    echo ""
-    echo "Optionally SSH_CONFIG_DIR can be used to choose the output path of the SSH configuration/keys"
-}
-
 say() {
     printf "<<<<<<<<\n $0 -> $*\n>>>>>>>>\n"
 }
@@ -40,9 +33,10 @@ ensure_token_set() {
     fi
 }
 
+default_docker_image=smondet/ketrew-dev-server:latest
 ketrew_server_image() {
     if [ "$KETREW_IMAGE" = "" ] ; then
-        export KETREW_IMAGE=smondet/ketrew-dev-server:latest
+        export KETREW_IMAGE=$default_docker_image
         SAY_INFO=default
     fi
     say "Using $SAY_INFO Ketrew-dev-server image: $KETREW_IMAGE"
@@ -159,6 +153,36 @@ take_down() {
     gcloud container clusters delete -q $PREFIX-cluster  || say "Cluster deletion FAILED!"
 }
 
+default_logs_query="-M 10"
+
+usage () {
+   cat <<EOF
+Usage:
+    $0 <command> [args]
+
+where <command> is:
+
+- up: create a Ketrew server on GKE (Google Container Engine)
+- status: check the status of the container
+- configure: configure the container's SSH access
+    - Variant: 'configure+local' does 'configure' and then edits the local '.ssh/authorized_keys'
+- down: destroy the deployment
+- exec <cmd>: run an arbitrary command within the container (on the “pod” in Kube-jargon)
+- pubkey: output the public Key of the Ketrew server
+- logs <query>: run 'ketrew logs' with a given query, see 'ketrew logs --help', the default is '$default_logs_query'
+
+
+Environment variables:
+
+- PREFIX: name prefix use to generate names (incl. hostnames, should be smaller than 15 characters)
+- TOKEN: authentication token used by the Ketrew server
+- KETREW_IMAGE: optional use a given docker image (default: '$default_docker_image')
+- SSH_CONFIG_DIR: optional, can be used to choose the output path of the SSH configuration/keys
+
+EOF
+
+}
+
 case "$1" in
     "up" ) create_ketrew_container ;;
     "configure" ) add_ssh_config ;;
@@ -168,10 +192,14 @@ case "$1" in
     "exec" ) run_command_on_pod "$2" ;;
     "pubkey" ) run_command_on_pod "cat .ssh/kserver.pub" ;;
     "logs" )
-        query="-M 10"
+        query="$default_logs_query"
         if [ "$2" != "" ]; then query="$2" ; fi
         run_command_on_pod "eval \`opam config env\` ; ketrew logs $query" ;;
+    "help" )
+        usage ;;
     * )
-    say "Cannnot understand command '$1'"
-    usage ;;
+        say "Cannnot understand command '$1'"
+        usage;
+        exit 1
+        ;;
 esac
