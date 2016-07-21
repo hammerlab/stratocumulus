@@ -40,16 +40,25 @@ ensure_token_set() {
     fi
 }
 
+ketrew_server_image() {
+    if [ "$KETREW_IMAGE" = "" ] ; then
+        export KETREW_IMAGE=smondet/ketrew-dev-server:latest
+        SAY_INFO=default
+    fi
+    say "Using $SAY_INFO Ketrew-dev-server image: $KETREW_IMAGE"
+}
+
 create_ketrew_container() {
     local PORT=8443
     ensure_kubectl
     ensure_prefix_set
     ensure_token_set
+    ketrew_server_image
 
     gcloud container clusters create $PREFIX-cluster --num-nodes 1 --wait
 
     kubectl run $PREFIX-service \
-       --image=smondet/ketrew-dev-server:latest \
+       --image=$KETREW_IMAGE \
        --env PORT=$PORT \
        --env AUTH_TOKEN=$TOKEN \
        -- ketrew start
