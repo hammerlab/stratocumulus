@@ -1,13 +1,6 @@
 #!/bin/sh
 set -e
 
-usage(){
-    echo "Usage:"
-    echo "    PREFIX=some-name TOKEN=sooper-sequre sh $0 {up,status,configure,down}"
-    echo ""
-    echo "Optionally SSH_CONFIG_DIR can be used to choose the output path of the SSH configuration/keys"
-}
-
 say() {
     printf "<<<<<<<<\n $0 -> $*\n>>>>>>>>\n"
 }
@@ -40,12 +33,18 @@ ensure_token_set() {
     fi
 }
 
+default_docker_image=smondet/ketrew-dev-server:latest
 ketrew_server_image() {
     if [ "$KETREW_IMAGE" = "" ] ; then
-        export KETREW_IMAGE=smondet/ketrew-dev-server:latest
+        export KETREW_IMAGE=$default_docker_image
         SAY_INFO=default
     fi
     say "Using $SAY_INFO Ketrew-dev-server image: $KETREW_IMAGE"
+}
+
+current_cluster_is_the_right_one() {
+    ensure_prefix_set
+    gcloud container clusters get-credentials $PREFIX-cluster
 }
 
 create_ketrew_container() {
@@ -70,6 +69,7 @@ create_ketrew_container() {
 run_command_on_pod () {
     ensure_kubectl
     ensure_prefix_set
+    current_cluster_is_the_right_one
     local pod=$(kubectl get pods | grep "$PREFIX" | awk '{print $1}')
     say "Guessed POD name: $pod"
     kubectl exec -i $pod -- /bin/bash -c "$1"
@@ -78,6 +78,7 @@ run_command_on_pod () {
 add_ssh_config(){
     ensure_kubectl
     ensure_prefix_set
+    current_cluster_is_the_right_one
 
     local tmpdir=/tmp/$PREFIX-sshconfig/
     if [ "$SSH_CONFIG_DIR" != "" ] ; then
@@ -121,6 +122,8 @@ status() {
     ensure_kubectl
     ensure_prefix_set
     ensure_token_set
+    current_cluster_is_the_right_one
+
     kubectl get service $PREFIX-service > /tmp/$PREFIX-status
     local ketrew_url=/tmp/$PREFIX-client-url
     if [ "$KETREW_URL" != "" ] ; then
@@ -143,9 +146,41 @@ take_down() {
 
     ensure_kubectl
     ensure_prefix_set
+    current_cluster_is_the_right_one
+
     kubectl delete service  $PREFIX-service || say "Service deletion FAILED!"
     kubectl delete deployment  $PREFIX-service || say "Deployment deletion FAILED!"
     gcloud container clusters delete -q $PREFIX-cluster  || say "Cluster deletion FAILED!"
+}
+
+default_logs_query="-M 10"
+
+usage () {
+   cat <<EOF
+Usage:
+    $0 <command> [args]
+
+where <command> is:
+
+- up: create a Ketrew server on GKE (Google Container Engine)
+- status: check the status of the container
+- configure: configure the container's SSH access
+    - Variant: 'configure+local' does 'configure' and then edits the local '.ssh/authorized_keys'
+- down: destroy the deployment
+- exec <cmd>: run an arbitrary command within the container (on the “pod” in Kube-jargon)
+- pubkey: output the public Key of the Ketrew server
+- logs <query>: run 'ketrew logs' with a given query, see 'ketrew logs --help', the default is '$default_logs_query'
+
+
+Environment variables:
+
+- PREFIX: name prefix use to generate names (incl. hostnames, should be smaller than 15 characters)
+- TOKEN: authentication token used by the Ketrew server
+- KETREW_IMAGE: optional use a given docker image (default: '$default_docker_image')
+- SSH_CONFIG_DIR: optional, can be used to choose the output path of the SSH configuration/keys
+
+EOF
+
 }
 
 case "$1" in
@@ -155,7 +190,16 @@ case "$1" in
     "status" ) status ;;
     "down" ) take_down ;;
     "exec" ) run_command_on_pod "$2" ;;
+    "pubkey" ) run_command_on_pod "cat .ssh/kserver.pub" ;;
+    "logs" )
+        query="$default_logs_query"
+        if [ "$2" != "" ]; then query="$2" ; fi
+        run_command_on_pod "eval \`opam config env\` ; ketrew logs $query" ;;
+    "help" )
+        usage ;;
     * )
-    say "Cannnot understand command '$1'"
-    usage ;;
+        say "Cannnot understand command '$1'"
+        usage;
+        exit 1
+        ;;
 esac
