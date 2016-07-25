@@ -100,6 +100,7 @@ module Node = struct
     os: [ `Xenial ] [@default `Xenial];
     machine_type: machine_type [@default `Google_cloud `Small];
     java: [ `Oracle_7 | `Oracle_8 | `None ] [@default `None];
+    additional_packages: string list [@default []];
   } [@@deriving yojson, show, make, eq]
 
   let show t = sprintf "%s" t.name
@@ -238,6 +239,7 @@ module Node = struct
             | `Opam -> "opam m4 pkg-config libgmp-dev"
             | `Sqlite -> "libsqlite3-dev"
             | `Biokepi_dependencies -> "cmake r-base tcsh"
+            | `Custom_packages packages -> String.concat ~sep:" " packages
             | `Libev -> "libev-dev"
         )
       |> String.concat ~sep:" "
@@ -1141,7 +1143,9 @@ module Cluster = struct
       @ List.concat_map (all_nodes t) ~f:(fun on ->
           [
             depends_on (Node.ensure_software_packages on
-                          ~configuration [`Biokepi_dependencies]);
+                          ~configuration
+                          [`Biokepi_dependencies;
+                           `Custom_packages on.Node.additional_packages]);
             (* depends_on (Node.get_gcloud_node_ssh_key on ~configuration); *)
           ]
           @ List.map t.nfs_mounts ~f:(fun mount ->
