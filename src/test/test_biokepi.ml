@@ -20,8 +20,8 @@ module Pipeline (Bfx : Biokepi.EDSL.Semantics) = struct
 
   let bam_file_to_fastq ~path ~sample_name =
     (* TODO: move to work-dir *)
-    Bfx.bam ~path ~reference_build ()
-    |> Bfx.bam_to_fastq ~sample_name ~fragment_id:"000" `PE
+    Bfx.bam  ~sample_name ~path ~reference_build ()
+    |> Bfx.bam_to_fastq ~fragment_id:"000" `PE
 
   let normal =
     bam_file_to_fastq
