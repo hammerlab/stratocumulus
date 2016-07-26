@@ -426,12 +426,12 @@ module Nfs = struct
               shf "rm -fr %s" (script_dir ~configuration);
               shf "mkdir -p %s" (script_dir ~configuration);
               shf "cd %s" (script_dir ~configuration);
-              sh "wget https://github.com/cioc/gcloudnfs/archive/master.zip";
-              sh "unzip master.zip";
-              sh "cd gcloudnfs-master/";
               sh "sudo apt-get update";
               sh "sudo apt-get install -y python-pip";
               sh "sudo pip install --upgrade google-api-python-client";
+              sh "wget https://github.com/cioc/gcloudnfs/archive/master.zip";
+              sh "unzip master.zip";
+              (* sh "cd gcloudnfs-master/"; *)
             ]
           ) in
       let product =
