@@ -238,7 +238,8 @@ module Node = struct
             | `Torque_client -> "torque-client torque-mom"
             | `Opam -> "opam m4 pkg-config libgmp-dev"
             | `Sqlite -> "libsqlite3-dev"
-            | `Biokepi_dependencies -> "cmake r-base tcsh"
+            | `Biokepi_dependencies ->
+              "cmake r-base tcsh libx11-dev libfreetype6-dev pkg-config"
             | `Custom_packages packages -> String.concat ~sep:" " packages
             | `Libev -> "libev-dev"
         )
