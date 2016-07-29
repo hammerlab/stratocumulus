@@ -978,43 +978,34 @@ module User = struct
     in
     let make =
       Configuration.gcloud_run_program configuration Program.(
-          (* begin match Node.equal from on with
-          | false -> *)
-            let tmp_dir =
-              sprintf "/tmp/keys-of-%s-to-%s" from.Node.name on.Node.name in
-            Node.chain_gcloud ~sudo:true ~on [
-              sprintf "rm -fr %s/.ssh/" (home t);
-              sprintf "mkdir -p %s/.ssh/" (home t);
-              sprintf "chmod -R 777 %s/.ssh/" (home t);
-            ]
-            (* && Node.chain_gcloud ~sudo:true ~on:from [
-              sprintf "chmod -R 777 ~%s/.ssh/" t.username;
-              sprintf "chmod a+x ~%s/" t.username;
-            ] *)
-            && chain [
-              (* We have to this in two steps because gcloud does not seem to be
-                 able to cope with 2 distant hosts *)
-              shf "mkdir -p %s" tmp_dir;
-              shf "gcloud compute copy-files --zone %s %s:%s %s:%s %s/ "
-                from.Node.zone
-                from.Node.name the_key#product#key
-                from.Node.name the_key#product#pub
-                tmp_dir;
-              shf "gcloud compute copy-files --zone %s %s/%s %s/%s %s:/home/%s/.ssh/"
-                on.Node.zone
-                tmp_dir (Filename.basename the_key#product#key)
-                tmp_dir (Filename.basename the_key#product#pub)
-                on.Node.name t.username;
-            ]
-            && Node.chain_gcloud ~sudo:true ~on [
-              sprintf "chmod -R 700 %s/.ssh/" (home t);
-            ]
-          (* | true ->
-            sh "echo No-SSH-key-copy-needed"
-          end *)
+          let tmp_dir =
+            sprintf "/tmp/keys-of-%s-to-%s" from.Node.name on.Node.name in
+          Node.chain_gcloud ~sudo:true ~on [
+            sprintf "mkdir -p %s/.ssh/" (home t);
+            sprintf "chmod -R 777 %s/.ssh/" (home t);
+          ]
+          && chain [
+            (* We have to this in two steps because gcloud does not seem to be
+               able to cope with 2 distant hosts *)
+            shf "mkdir -p %s" tmp_dir;
+            shf "gcloud compute copy-files --zone %s %s:%s %s:%s %s/ "
+              from.Node.zone
+              from.Node.name the_key#product#key
+              from.Node.name the_key#product#pub
+              tmp_dir;
+            shf "gcloud compute copy-files --zone %s %s/%s %s/%s %s:/home/%s/.ssh/"
+              on.Node.zone
+              tmp_dir (Filename.basename the_key#product#key)
+              tmp_dir (Filename.basename the_key#product#pub)
+              on.Node.name t.username;
+          ]
           && Node.chain_gcloud ~sudo:true ~on [
+            sprintf "chmod -R 700 %s/.ssh/" (home t);
+          ]
+          && Node.chain_gcloud ~sudo:true ~on [
+            (* Here we take full control over the `.ssh/config` file:  *)
             sprintf "echo 'IdentityFile %s/.ssh/%s' \
-                     >> %s/.ssh/config"
+                     > %s/.ssh/config"
               (home t)
               (Filename.basename the_key#product#key)
               (home t);
