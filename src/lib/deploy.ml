@@ -983,7 +983,6 @@ module User = struct
             let tmp_dir =
               sprintf "/tmp/keys-of-%s-to-%s" from.Node.name on.Node.name in
             Node.chain_gcloud ~sudo:true ~on [
-              sprintf "rm -fr %s/.ssh/" (home t);
               sprintf "mkdir -p %s/.ssh/" (home t);
               sprintf "chmod -R 777 %s/.ssh/" (home t);
             ]
@@ -1013,8 +1012,9 @@ module User = struct
             sh "echo No-SSH-key-copy-needed"
           end *)
           && Node.chain_gcloud ~sudo:true ~on [
+            (* Here we take full control over the `.ssh/config` file:  *)
             sprintf "echo 'IdentityFile %s/.ssh/%s' \
-                     >> %s/.ssh/config"
+                     > %s/.ssh/config"
               (home t)
               (Filename.basename the_key#product#key)
               (home t);
