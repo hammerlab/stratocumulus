@@ -1072,6 +1072,7 @@ module Cluster = struct
     ketrew_server: Node.t option;
     users: User.t list [@default []];
     authorize_keys: [ `Inline of string ] list [@default []];
+    open_ports: ([ `Pbs_server ] * int) list [@default []];
   } [@@deriving yojson, show, make]
 
   let open_ketrew_port t ~configuration =
@@ -1079,6 +1080,12 @@ module Cluster = struct
         Firewall_rule.make (sprintf "cluster-%s-ketrew-port" t.name)
           ~policy:(`Allow_tcp (Configuration.ketrew_port configuration,
                                `To [node.Node.name]))
+      )
+
+  let additional_firewall_rules t ~configuration =
+    List.map t.open_ports ~f:(fun (`Pbs_server, port) ->
+        Firewall_rule.make (sprintf "cluster-pbs-server-port-%d" port)
+          ~policy:(`Allow_tcp (port, `To [t.torque_server.Node.name]))
       )
 
   let opt_map_to_list o ~f =
@@ -1119,6 +1126,9 @@ module Cluster = struct
       (open_ketrew_port t ~configuration
        |> opt_map_to_list ~f:(fun rule ->
            depends_on (Firewall_rule.ensure rule ~configuration)))
+      @ (additional_firewall_rules t ~configuration
+         |> List.map ~f:(fun rule ->
+             depends_on (Firewall_rule.ensure rule ~configuration)))
       @ (opt_map_to_list t.ketrew_server ~f:(fun node ->
           depends_on (
             Ketrew_server.setup
