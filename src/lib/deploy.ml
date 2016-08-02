@@ -1084,7 +1084,7 @@ module Cluster = struct
 
   let additional_firewall_rules t ~configuration =
     List.map t.open_ports ~f:(fun (`Pbs_server, port) ->
-        Firewall_rule.make (sprintf "cluster-pbs-server-port-%d" port)
+        Firewall_rule.make (sprintf "%s-pbs-server-port-%d" t.name port)
           ~policy:(`Allow_tcp (port, `To [t.torque_server.Node.name]))
       )
 
@@ -1177,6 +1177,9 @@ module Cluster = struct
     let edges =
       opt_map_to_list (open_ketrew_port t ~configuration) ~f:(fun rule ->
           depends_on (Firewall_rule.remove ~configuration rule))
+      @ (additional_firewall_rules t ~configuration
+         |> List.map ~f:(fun rule ->
+             depends_on (Firewall_rule.remove rule ~configuration)))
       @ List.map nodes_to_destroy ~f:(fun node ->
           depends_on (Node.destroy node ~configuration)
         )

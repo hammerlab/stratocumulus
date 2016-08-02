@@ -49,6 +49,7 @@ let test_deployment =
     Node.make name
       ~java:`Oracle_7
       ~machine_type:(`Google_cloud `Highmem_8)
+      ~additional_packages:["nginx"]
   in
   Deployment.make (name "one")
     ~configuration
@@ -59,6 +60,7 @@ let test_deployment =
               compute_node (sprintf "%s-compute-%02d" prefix i)
             )
         )
+        ~open_ports:[ `Pbs_server, 80 ]
         ~nfs_mounts:[nfs_mount]
         ~torque_server:(compute_node (name "pbs-server"))
         ?ketrew_server
