@@ -137,6 +137,28 @@ module Node = struct
           )
       )
 
+  let stop t ~configuration =
+    let open Ketrew.EDSL in
+    workflow_node without_product
+      ~name:(sprintf "Stop %s" t.name)
+      ~make:(
+        Configuration.gcloud_run_program configuration Program.(
+            shf "gcloud compute instances stop %s --zone %s --quiet"
+              t.name t.zone
+          )
+      )
+
+  let start t ~configuration =
+    let open Ketrew.EDSL in
+    workflow_node without_product
+      ~name:(sprintf "Start %s" t.name)
+      ~make:(
+        Configuration.gcloud_run_program configuration Program.(
+            shf "gcloud compute instances start %s --zone %s --quiet"
+              t.name t.zone
+          )
+      )
+
   let oracle_java_ubuntu_installation ~on which_one =
     chain_gcloud ~on ~sudo:true [
       (* The default Java, OpenJDK seems to create problems
@@ -198,7 +220,6 @@ module Node = struct
                cf. http://manpages.ubuntu.com/manpages/xenial/en/man1/aptdcon.1.html *)
             "apt-get install -y aptdaemon";
           ]
-
           && begin match t.java with
           | `None -> shf "echo No-java-installation"
           | `Oracle_7 | `Oracle_8 as oracle ->
@@ -539,6 +560,17 @@ module Nfs = struct
       let name = sprintf "Destroy NFS deployment: %s" t.name in
       workflow_node without_product ~name ~make
         ~edges:[depends_on script]
+
+    let stop t ~configuration =
+      let open Ketrew.EDSL in
+      let node = as_node t in
+      Node.stop node ~configuration
+
+    let start t ~configuration =
+      let open Ketrew.EDSL in
+      let node = as_node t in
+      Node.start node ~configuration
+
 
 
   end
@@ -1188,6 +1220,34 @@ module Cluster = struct
       ~name:(sprintf "Disable cluster %s" t.name)
       ~edges
 
+  let stop t ~configuration =
+    let open Ketrew.EDSL in
+    let nodes =
+      opt_map_to_list t.ketrew_server ~f:(fun e -> e)
+      @ t.torque_server :: t.compute_nodes in
+    let edges =
+      List.map nodes ~f:(fun node ->
+          depends_on (Node.stop node ~configuration)
+        )
+    in
+    workflow_node without_product
+      ~name:(sprintf "Stop cluster %s" t.name)
+      ~edges
+
+  let start t ~configuration =
+    let open Ketrew.EDSL in
+    let nodes =
+      opt_map_to_list t.ketrew_server ~f:(fun e -> e)
+      @ t.torque_server :: t.compute_nodes in
+    let edges =
+      List.map nodes ~f:(fun node ->
+          depends_on (Node.start node ~configuration)
+        )
+    in
+    workflow_node without_product
+      ~name:(sprintf "Start cluster %s" t.name)
+      ~edges
+
   let ketrew_info t ~configuration =
     let server =
       Option.value_exn t.ketrew_server ~msg:"No Ketrew server configured" in
@@ -1369,6 +1429,34 @@ module Deployment = struct
       ~name:(sprintf "Disable deployment %s" t.name)
       ~edges
 
+  let stop t =
+    let open Ketrew.EDSL in
+    let configuration = t.configuration in
+    let edges =
+      List.map t.nfs_deployments
+        ~f:(fun nd -> Nfs.Fresh.stop nd ~configuration |> depends_on)
+      @
+      List.map t.clusters
+        ~f:(fun c -> Cluster.stop c ~configuration |> depends_on)
+    in
+    workflow_node without_product
+      ~name:(sprintf "Stop deployment %s" t.name)
+      ~edges
+
+  let start t =
+    let open Ketrew.EDSL in
+    let configuration = t.configuration in
+    let edges =
+      List.map t.nfs_deployments
+        ~f:(fun nd -> Nfs.Fresh.start nd ~configuration |> depends_on)
+      @
+      List.map t.clusters
+        ~f:(fun c -> Cluster.start c ~configuration |> depends_on)
+    in
+    workflow_node without_product
+      ~name:(sprintf "Start deployment %s" t.name)
+      ~edges
+
   let status t =
     let configuration = t.configuration in
     List.map t.clusters ~f:(fun cluster ->
@@ -1401,6 +1489,8 @@ end
 let command_line
     ~up_command
     ~down_command
+    ~stop_command
+    ~start_command
     ~status_command
     ~ketrew_config_command
     ~print_command
@@ -1447,7 +1537,15 @@ let command_line
   let down =
     workflow_command down_command
       ~f:Deployment.down
-      ~descr:"The worfklow to disable the deployment" in
+      ~descr:"The worfklow to destroy the deployment" in
+  let stop =
+    workflow_command stop_command
+      ~f:Deployment.stop
+      ~descr:"The worfklow to stop the deployment" in
+  let start =
+    workflow_command start_command
+      ~f:Deployment.start
+      ~descr:"The worfklow to start a stopped deployment" in
   let format_flag =
     let open Term in
     pure (function true -> `Json | false -> `Show)
@@ -1501,7 +1599,7 @@ let command_line
                           Ketrew server")
   in
   let cmds = [
-    up; down; show; status; ketrew_config;
+    up; down; stop; start; show; status; ketrew_config;
   ]
   in
   cmds

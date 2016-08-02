@@ -94,6 +94,8 @@ let () =
     Stratocumulus.Deploy.command_line test_deployment
       ~up_command:"up"
       ~down_command:"down"
+      ~stop_command:"stop"
+      ~start_command:"start"
       ~print_command:"display"
       ~status_command:"status"
       ~ketrew_config_command:"ketrew-configuration"
@@ -101,6 +103,8 @@ let () =
     Stratocumulus.Deploy.command_line test_nfs_deployment
       ~up_command:"nfs-up"
       ~down_command:"nfs-down"
+      ~stop_command:"nfs-stop"
+      ~start_command:"nfs-start"
       ~print_command:"nfs-display"
       ~status_command:"nfs-status"
       ~ketrew_config_command:"nfs-ketrew-configuration"
