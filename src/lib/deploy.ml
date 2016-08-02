@@ -1084,7 +1084,7 @@ module Cluster = struct
 
   let additional_firewall_rules t ~configuration =
     List.map t.open_ports ~f:(fun (`Pbs_server, port) ->
-        Firewall_rule.make (sprintf "cluster-pbs-server-port-%d" port)
+        Firewall_rule.make (sprintf "%s-pbs-server-port-%d" t.name port)
           ~policy:(`Allow_tcp (port, `To [t.torque_server.Node.name]))
       )
 
