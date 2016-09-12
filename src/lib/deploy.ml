@@ -239,7 +239,7 @@ module Node = struct
             | `Opam -> "opam m4 pkg-config libgmp-dev"
             | `Sqlite -> "libsqlite3-dev"
             | `Biokepi_dependencies ->
-              "cmake r-base tcsh libx11-dev libfreetype6-dev pkg-config"
+              "cmake r-base tcsh libx11-dev libfreetype6-dev pkg-config gawk"
             | `Custom_packages packages -> String.concat ~sep:" " packages
             | `Libev -> "libev-dev"
         )
